@@ -1,0 +1,1652 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Trapa Center API",
+    "description": "駐車場入出庫トラッキングシステム「トラパ」のセンターAPI。エッジデバイスからの入出庫イベント登録、ヘルスチェック、デバイスへのコマンド（再起動など）配信をポーリング方式で提供する。",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/v1/health": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "ヘルスチェック",
+        "description": "APIサーバーとDB接続の稼働状態を確認する。",
+        "operationId": "health_check_api_v1_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthOut"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/login": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "管理者ログイン",
+        "description": "ユーザー名とパスワードを検証し、アクセストークンを返す。同時にリフレッシュ\nトークンをHTTP OnlyクッキーとしてセットするAdmin console向けのログイン。",
+        "operationId": "login_api_v1_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/refresh": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "アクセストークン更新",
+        "description": "HTTP Onlyクッキーのリフレッシュトークンを検証し、新しいアクセストークンを\n発行する。同時にリフレッシュトークンをローテーション（使い捨て）する。",
+        "operationId": "refresh_api_v1_auth_refresh_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenOut"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/logout": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "ログアウト",
+        "description": "リフレッシュトークンをサーバー側で失効させ、クッキーを削除する。",
+        "operationId": "logout_api_v1_auth_logout_post",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/me": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "ログイン中のユーザー情報取得",
+        "operationId": "me_api_v1_auth_me_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserOut"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/events": {
+      "post": {
+        "tags": [
+          "events"
+        ],
+        "summary": "入出庫イベント登録",
+        "description": "認証済みデバイスの入出庫イベントを記録し、同一トランザクション内で\n駐車場の現在台数（current_count）を更新する。",
+        "operationId": "create_event_api_v1_events_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EventCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ]
+      }
+    },
+    "/api/v1/heartbeat": {
+      "post": {
+        "tags": [
+          "device"
+        ],
+        "summary": "ハートビート送信",
+        "description": "デバイスが定期的に呼び出す生存確認エンドポイント。ステータスを報告すると\n同時に、前回のポーリング以降にキューされたコマンド（再起動など）を受け取る。\nNAT配下などサーバーから直接到達できないデバイスに対して、サーバーが\nコマンドを届けられる唯一の経路。",
+        "operationId": "heartbeat_api_v1_heartbeat_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HeartbeatIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HeartbeatOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ]
+      }
+    },
+    "/api/v1/commands/{command_id}/ack": {
+      "post": {
+        "tags": [
+          "device"
+        ],
+        "summary": "コマンド実行結果の報告",
+        "description": "デバイスが受け取ったコマンド（再起動など）の実行結果（成功/失敗）を報告する。",
+        "operationId": "ack_command_api_v1_commands__command_id__ack_post",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "command_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Command Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommandAck"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/devices": {
+      "get": {
+        "tags": [
+          "devices"
+        ],
+        "summary": "デバイス一覧取得",
+        "description": "登録済みデバイスの一覧と、最終通信時刻から判定したオンライン状態を返す。",
+        "operationId": "list_devices_api_v1_devices_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DeviceOut"
+                  },
+                  "type": "array",
+                  "title": "Response List Devices Api V1 Devices Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "devices"
+        ],
+        "summary": "デバイス登録",
+        "description": "新しいエッジデバイスを登録し、平文のAPIキーを一度だけ返す。サーバーには\nSHA-256ハッシュのみ保存されるため、後から再取得することはできない。",
+        "operationId": "register_device_api_v1_devices_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeviceCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceCreateOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/devices/{device_id}": {
+      "get": {
+        "tags": [
+          "devices"
+        ],
+        "summary": "デバイス詳細取得",
+        "description": "指定したデバイスの詳細とオンライン状態を返す。",
+        "operationId": "get_device_api_v1_devices__device_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "device_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Device Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "devices"
+        ],
+        "summary": "デバイス情報の更新",
+        "description": "デバイスコード・表示名・紐づく駐車場を更新する。指定したフィールドのみ更新される。\nAPIキー自体はここでは変更されない。",
+        "operationId": "update_device_api_v1_devices__device_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "device_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Device Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeviceUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "devices"
+        ],
+        "summary": "デバイス削除",
+        "description": "デバイスを削除する。紐づく入出庫イベント・コマンド履歴も合わせて削除される。",
+        "operationId": "delete_device_api_v1_devices__device_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "device_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Device Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/devices/{device_id}/commands": {
+      "post": {
+        "tags": [
+          "devices"
+        ],
+        "summary": "コマンドをキューに登録",
+        "description": "デバイスへのコマンド（再起動など）をキューに積む。デバイスは次回の\n/heartbeat 呼び出し時にこれを受け取る。サーバーからデバイスへの直接\nプッシュは行わない。",
+        "operationId": "queue_command_api_v1_devices__device_id__commands_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "device_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Device Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommandCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "devices"
+        ],
+        "summary": "コマンド履歴取得",
+        "description": "指定したデバイスに対して発行したコマンドの履歴を新しい順に返す。",
+        "operationId": "list_commands_api_v1_devices__device_id__commands_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "device_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Device Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CommandOut"
+                  },
+                  "title": "Response List Commands Api V1 Devices  Device Id  Commands Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/parking-lots": {
+      "get": {
+        "tags": [
+          "parking-lots"
+        ],
+        "summary": "駐車場一覧取得",
+        "description": "登録済みの駐車場と、それぞれの現在の駐車台数を一覧で返す。",
+        "operationId": "list_parking_lots_api_v1_parking_lots_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ParkingLotOut"
+                  },
+                  "type": "array",
+                  "title": "Response List Parking Lots Api V1 Parking Lots Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "parking-lots"
+        ],
+        "summary": "駐車場登録",
+        "description": "新しい駐車場を登録する。",
+        "operationId": "create_parking_lot_api_v1_parking_lots_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ParkingLotCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ParkingLotOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/parking-lots/{lot_id}": {
+      "get": {
+        "tags": [
+          "parking-lots"
+        ],
+        "summary": "駐車場詳細取得",
+        "description": "指定した駐車場の詳細（現在の駐車台数を含む）を返す。",
+        "operationId": "get_parking_lot_api_v1_parking_lots__lot_id__get",
+        "parameters": [
+          {
+            "name": "lot_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Lot Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ParkingLotOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "parking-lots"
+        ],
+        "summary": "駐車場情報の更新",
+        "description": "駐車場名・収容台数を更新する。指定したフィールドのみ更新される。",
+        "operationId": "update_parking_lot_api_v1_parking_lots__lot_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "lot_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Lot Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ParkingLotUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ParkingLotOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "parking-lots"
+        ],
+        "summary": "駐車場削除",
+        "description": "駐車場を削除する。紐づくデバイスが存在する場合は409エラーになる（先にデバイスを削除・移動すること）。",
+        "operationId": "delete_parking_lot_api_v1_parking_lots__lot_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "lot_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Lot Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/parking-lots/{lot_id}/events": {
+      "get": {
+        "tags": [
+          "parking-lots"
+        ],
+        "summary": "駐車場の入出庫履歴取得",
+        "description": "指定した駐車場に紐づく入出庫イベントを検出日時の新しい順に返す。",
+        "operationId": "list_parking_lot_events_api_v1_parking_lots__lot_id__events_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "lot_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Lot Id"
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "この日時以降に検出されたイベントに絞り込む",
+              "title": "Since"
+            },
+            "description": "この日時以降に検出されたイベントに絞り込む"
+          },
+          {
+            "name": "until",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "この日時以前に検出されたイベントに絞り込む",
+              "title": "Until"
+            },
+            "description": "この日時以前に検出されたイベントに絞り込む"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000,
+              "description": "取得件数の上限（最大1000）",
+              "default": 100,
+              "title": "Limit"
+            },
+            "description": "取得件数の上限（最大1000）"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/EventOut"
+                  },
+                  "title": "Response List Parking Lot Events Api V1 Parking Lots  Lot Id  Events Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "CommandAck": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "completed",
+              "failed"
+            ],
+            "title": "Status",
+            "description": "コマンドの実行結果"
+          },
+          "result_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Message",
+            "description": "実行結果の詳細メッセージ（任意）"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "CommandAck"
+      },
+      "CommandCreate": {
+        "properties": {
+          "command_type": {
+            "type": "string",
+            "const": "restart",
+            "title": "Command Type",
+            "description": "コマンド種別（現在は再起動のみ対応）"
+          },
+          "requested_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested By",
+            "description": "コマンドを発行した主体（管理者名など、任意）"
+          }
+        },
+        "type": "object",
+        "required": [
+          "command_type"
+        ],
+        "title": "CommandCreate"
+      },
+      "CommandOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "device_id": {
+            "type": "integer",
+            "title": "Device Id",
+            "description": "コマンドの宛先デバイスID"
+          },
+          "command_type": {
+            "type": "string",
+            "title": "Command Type",
+            "description": "コマンド種別"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "コマンドの状態（pending=未配信 / delivered=配信済み / completed=完了 / failed=失敗）"
+          },
+          "requested_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested By"
+          },
+          "result_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Message"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At",
+            "description": "コマンドがキューに登録された日時"
+          },
+          "delivered_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delivered At",
+            "description": "デバイスがハートビートで受け取った日時"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At",
+            "description": "デバイスが実行結果を報告した日時"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "device_id",
+          "command_type",
+          "status",
+          "requested_by",
+          "result_message",
+          "created_at",
+          "delivered_at",
+          "completed_at"
+        ],
+        "title": "CommandOut"
+      },
+      "DeviceCreate": {
+        "properties": {
+          "device_code": {
+            "type": "string",
+            "title": "Device Code",
+            "description": "デバイスの一意な識別コード（例: trapa-dev1）"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name",
+            "description": "表示用のデバイス名（任意）"
+          },
+          "parking_lot_id": {
+            "type": "integer",
+            "title": "Parking Lot Id",
+            "description": "このデバイスが紐づく駐車場のID"
+          }
+        },
+        "type": "object",
+        "required": [
+          "device_code",
+          "parking_lot_id"
+        ],
+        "title": "DeviceCreate"
+      },
+      "DeviceCreateOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "device_code": {
+            "type": "string",
+            "title": "Device Code"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "parking_lot_id": {
+            "type": "integer",
+            "title": "Parking Lot Id"
+          },
+          "api_key": {
+            "type": "string",
+            "title": "Api Key",
+            "description": "デバイス認証用APIキー（平文）。このレスポンスでのみ取得可能で、以降は再取得できない"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "device_code",
+          "name",
+          "parking_lot_id",
+          "api_key"
+        ],
+        "title": "DeviceCreateOut"
+      },
+      "DeviceOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "device_code": {
+            "type": "string",
+            "title": "Device Code"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "parking_lot_id": {
+            "type": "integer",
+            "title": "Parking Lot Id"
+          },
+          "last_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Status",
+            "description": "直近のハートビートで報告された状態"
+          },
+          "last_seen_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Seen At",
+            "description": "最終通信日時（ハートビートまたはイベント受信）"
+          },
+          "online": {
+            "type": "boolean",
+            "title": "Online",
+            "description": "最終通信からの経過時間がしきい値以内であればtrue"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "device_code",
+          "name",
+          "parking_lot_id",
+          "last_status",
+          "last_seen_at",
+          "online",
+          "created_at"
+        ],
+        "title": "DeviceOut"
+      },
+      "DeviceUpdate": {
+        "properties": {
+          "device_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Code",
+            "description": "デバイスの一意な識別コード（例: trapa-dev1）"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name",
+            "description": "表示用のデバイス名"
+          },
+          "parking_lot_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parking Lot Id",
+            "description": "このデバイスが紐づく駐車場のID"
+          }
+        },
+        "type": "object",
+        "title": "DeviceUpdate"
+      },
+      "EventCreate": {
+        "properties": {
+          "event_type": {
+            "type": "string",
+            "enum": [
+              "entry",
+              "exit"
+            ],
+            "title": "Event Type",
+            "description": "イベント種別（entry=入庫 / exit=出庫）"
+          },
+          "detected_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Detected At",
+            "description": "エッジデバイスが検出した日時（ローカル時刻）"
+          },
+          "vehicle_track_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vehicle Track Id",
+            "description": "エッジ側トラッカーの追跡ID（任意。同一車両の入出庫を紐づける際の参考情報）"
+          }
+        },
+        "type": "object",
+        "required": [
+          "event_type",
+          "detected_at"
+        ],
+        "title": "EventCreate"
+      },
+      "EventOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "device_id": {
+            "type": "integer",
+            "title": "Device Id",
+            "description": "このイベントを登録したデバイスのID"
+          },
+          "event_type": {
+            "type": "string",
+            "title": "Event Type",
+            "description": "イベント種別（entry=入庫 / exit=出庫）"
+          },
+          "vehicle_track_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vehicle Track Id"
+          },
+          "detected_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Detected At",
+            "description": "エッジデバイスが検出した日時"
+          },
+          "received_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Received At",
+            "description": "サーバーがイベントを受信した日時"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "device_id",
+          "event_type",
+          "vehicle_track_id",
+          "detected_at",
+          "received_at"
+        ],
+        "title": "EventOut"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "HealthOut": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "サーバー全体の状態（ok / degraded）"
+          },
+          "database": {
+            "type": "string",
+            "title": "Database",
+            "description": "DB接続の状態（ok / error）"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Timestamp",
+            "description": "このヘルスチェックを実行した日時"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "database",
+          "timestamp"
+        ],
+        "title": "HealthOut"
+      },
+      "HeartbeatIn": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "デバイスが自己申告する状態（例: ok, degraded）",
+            "default": "ok"
+          }
+        },
+        "type": "object",
+        "title": "HeartbeatIn"
+      },
+      "HeartbeatOut": {
+        "properties": {
+          "server_time": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Server Time",
+            "description": "サーバー側の受信日時"
+          },
+          "commands": {
+            "items": {
+              "$ref": "#/components/schemas/CommandOut"
+            },
+            "type": "array",
+            "title": "Commands",
+            "description": "このハートビートで配信された、実行待ちのコマンド一覧"
+          }
+        },
+        "type": "object",
+        "required": [
+          "server_time",
+          "commands"
+        ],
+        "title": "HeartbeatOut"
+      },
+      "LoginIn": {
+        "properties": {
+          "username": {
+            "type": "string",
+            "title": "Username",
+            "description": "管理者ユーザー名"
+          },
+          "password": {
+            "type": "string",
+            "title": "Password",
+            "description": "パスワード"
+          }
+        },
+        "type": "object",
+        "required": [
+          "username",
+          "password"
+        ],
+        "title": "LoginIn"
+      },
+      "ParkingLotCreate": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "駐車場名"
+          },
+          "capacity": {
+            "type": "integer",
+            "title": "Capacity",
+            "description": "収容台数"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "capacity"
+        ],
+        "title": "ParkingLotCreate"
+      },
+      "ParkingLotOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "capacity": {
+            "type": "integer",
+            "title": "Capacity"
+          },
+          "current_count": {
+            "type": "integer",
+            "title": "Current Count",
+            "description": "現在の駐車台数。入出庫イベントごとに増減する"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "capacity",
+          "current_count",
+          "created_at"
+        ],
+        "title": "ParkingLotOut"
+      },
+      "ParkingLotUpdate": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name",
+            "description": "駐車場名"
+          },
+          "capacity": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capacity",
+            "description": "収容台数"
+          }
+        },
+        "type": "object",
+        "title": "ParkingLotUpdate"
+      },
+      "TokenOut": {
+        "properties": {
+          "access_token": {
+            "type": "string",
+            "title": "Access Token",
+            "description": "短命なJWTアクセストークン。フロントエンドはメモリ上にのみ保持する"
+          },
+          "token_type": {
+            "type": "string",
+            "title": "Token Type",
+            "default": "bearer"
+          },
+          "expires_in": {
+            "type": "integer",
+            "title": "Expires In",
+            "description": "アクセストークンの有効期限（秒）"
+          }
+        },
+        "type": "object",
+        "required": [
+          "access_token",
+          "expires_in"
+        ],
+        "title": "TokenOut"
+      },
+      "UserOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "username": {
+            "type": "string",
+            "title": "Username"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "username"
+        ],
+        "title": "UserOut"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "type": "http",
+        "description": "Admin console access token (from /auth/login)",
+        "scheme": "bearer"
+      },
+      "APIKeyHeader": {
+        "type": "apiKey",
+        "description": "Edge device API key",
+        "in": "header",
+        "name": "X-API-Key"
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "health",
+      "description": "サーバーおよびDB接続の稼働確認"
+    },
+    {
+      "name": "events",
+      "description": "エッジデバイスからの入出庫イベント登録"
+    },
+    {
+      "name": "device",
+      "description": "デバイスが自発的に呼び出すエンドポイント（ハートビート送信・コマンド実行結果の報告）"
+    },
+    {
+      "name": "devices",
+      "description": "デバイスの管理（登録・一覧・再起動などのコマンド発行、要管理者ログイン）"
+    },
+    {
+      "name": "parking-lots",
+      "description": "駐車場の現在の駐車状況と入出庫履歴"
+    },
+    {
+      "name": "auth",
+      "description": "管理コンソール（Admin）のログイン・トークン管理"
+    }
+  ]
+}
