@@ -19,9 +19,9 @@ OPENAPI_TAGS = [
 ]
 
 app = FastAPI(
-    title="Trapa Center API",
+    title="Tracking-Parking API",
     description=(
-        "駐車場入出庫トラッキングシステム「トラパ」のセンターAPI。"
+        "駐車場入出庫トラッキングシステム「Tracking-Parking」のセンターAPI。"
         "エッジデバイスからの入出庫イベント登録、ヘルスチェック、"
         "デバイスへのコマンド（再起動など）配信をポーリング方式で提供する。"
     ),

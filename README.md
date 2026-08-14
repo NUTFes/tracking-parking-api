@@ -1,4 +1,4 @@
-# トラパ 駐車場管理センター — API (tracking-parking-api)
+# Tracking-Parking — API (tracking-parking-api)
 
 FastAPI + MySQL 製のセンター側 REST API。エッジデバイスからの入出庫イベント・ハートビート受信、
 デバイス/駐車場の管理、Admin コンソール向けの認証を担う。
