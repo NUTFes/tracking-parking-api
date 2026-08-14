@@ -42,7 +42,9 @@ def test_entry_and_exit_update_occupancy(client, admin_headers):
     assert entry.json()["device_id"] == device["id"]
 
     lot_after_entry = client.get(f"/api/v1/parking-lots/{lot['id']}").json()
-    assert lot_after_entry["current_count"] == 1
+    assert lot_after_entry["system_count"] == 1
+    # Device events are tracked separately from the manual (current_count) figure.
+    assert lot_after_entry["current_count"] == 0
 
     exit_ = client.post(
         "/api/v1/events",
@@ -52,7 +54,7 @@ def test_entry_and_exit_update_occupancy(client, admin_headers):
     assert exit_.status_code == 201
 
     lot_after_exit = client.get(f"/api/v1/parking-lots/{lot['id']}").json()
-    assert lot_after_exit["current_count"] == 0
+    assert lot_after_exit["system_count"] == 0
 
 
 def test_occupancy_does_not_go_negative(client, admin_headers):
@@ -66,7 +68,7 @@ def test_occupancy_does_not_go_negative(client, admin_headers):
     )
 
     lot_after = client.get(f"/api/v1/parking-lots/{lot['id']}").json()
-    assert lot_after["current_count"] == 0
+    assert lot_after["system_count"] == 0
 
 
 def test_list_parking_lot_events(client, admin_headers):

@@ -18,7 +18,8 @@ erDiagram
         int id PK
         string name
         int capacity
-        int current_count "既定値 0"
+        int current_count "既定値 0、人力カウント専用"
+        int system_count "既定値 0、デバイスの入出庫イベント専用"
         datetime created_at
     }
     DEVICES {
@@ -84,8 +85,15 @@ erDiagram
 | `id` | INT | PK, AUTO_INCREMENT | |
 | `name` | VARCHAR(255) | NOT NULL | 駐車場名 |
 | `capacity` | INT | NOT NULL | 収容台数 |
-| `current_count` | INT | NOT NULL, 既定値0 | 現在の駐車台数。`parking_events` 登録時に増減し、非負に固定される |
+| `current_count` | INT | NOT NULL, 既定値0 | **人力カウント専用**。`manager`の手動増減・Adminのリセットでのみ増減し、非負に固定される。容量比較・満車判定など「公式」な値として使われる |
+| `system_count` | INT | NOT NULL, 既定値0 | **デバイスの入出庫イベント専用**。`parking_events` 登録時に増減し、非負に固定される。`current_count`とは独立に管理され、互いに上書きしない |
 | `created_at` | DATETIME | NOT NULL | 登録日時 |
+
+`current_count`と`system_count`を分けているのは、カメラ等のデバイス検出は取りこぼし・誤検出が
+起こりうるため、現地スタッフが目視で数えた値（人力カウント）を正として扱いつつ、参考情報として
+デバイス側の集計も併記できるようにするため。`manager`の画面では、デバイスが紐づく駐車場
+（`has_device`、`devices`テーブルとのリレーションから算出する計算プロパティ）のみ、
+`current_count`の下に`system_count`を小さく表示する。
 
 駐車場の削除は、紐づく `devices` が1件でも存在すると409エラーになる（先にデバイスを削除・
 他の駐車場へ移動すること）。
@@ -108,7 +116,7 @@ erDiagram
 ソルト付きKDFは使っていない。
 
 デバイスの削除は、紐づく `parking_events` / `device_commands` を ON DELETE CASCADE で
-まとめて削除する（履歴も含めて完全に削除される。駐車場の集計 `current_count` はイベント登録時に
+まとめて削除する（履歴も含めて完全に削除される。駐車場の集計 `system_count` はイベント登録時に
 更新済みの値がそのまま残り、削除時に再計算はしない）。
 
 ### `parking_events` — 入出庫イベント
@@ -123,8 +131,8 @@ erDiagram
 | `received_at` | DATETIME | NOT NULL | サーバーが受信した日時 |
 
 `POST /api/v1/events` でイベントを作成する際、同一トランザクション内で対象駐車場の行を
-`SELECT ... FOR UPDATE` でロックし、`current_count` を更新する（`entry`で+1、`exit`で-1、
-0未満にはならない）。
+`SELECT ... FOR UPDATE` でロックし、`system_count`（`current_count`ではない）を更新する
+（`entry`で+1、`exit`で-1、0未満にはならない）。
 
 ### `device_commands` — デバイスへのコマンドキュー
 
@@ -148,24 +156,26 @@ pending --(デバイスが /heartbeat を呼ぶ)--> delivered --(デバイスが
 
 ### `parking_activities` — 駐車場の活動ログ
 
-`current_count` を変化させる全ての操作（入出庫イベント・手動増減・リセット）を一元的に記録する
-統合ログ。時系列分析と「誰が変更したか」の監査を目的とする。
+`current_count`（人力）・`system_count`（デバイス）を変化させる全ての操作（入出庫イベント・手動
+増減・リセット）を一元的に記録する統合ログ。時系列分析と「誰が変更したか」の監査を目的とする。
+`activity_type`によって`delta`/`count_after`がどちらのカウントを指すかが変わる（`entry`/`exit`は
+`system_count`、`manual_adjustment`/`reset`は`current_count`）。
 
 | カラム | 型 | 制約 | 説明 |
 |---|---|---|---|
 | `id` | INT | PK, AUTO_INCREMENT | |
 | `parking_lot_id` | INT | FK → `parking_lots.id` ON DELETE CASCADE, NOT NULL, INDEX | 対象駐車場 |
-| `activity_type` | ENUM('entry','exit','manual_adjustment','reset') | NOT NULL | 活動種別 |
-| `delta` | INT | NOT NULL | この活動による`current_count`の増減（実際に適用された値。0未満へのクランプ後） |
-| `count_after` | INT | NOT NULL | この活動が反映された後の`current_count` |
+| `activity_type` | ENUM('entry','exit','manual_adjustment','reset') | NOT NULL | 活動種別。`entry`/`exit`は`system_count`、`manual_adjustment`/`reset`は`current_count`に対する変化を表す |
+| `delta` | INT | NOT NULL | この活動による増減（実際に適用された値。0未満へのクランプ後） |
+| `count_after` | INT | NOT NULL | この活動が反映された後の値（`activity_type`に応じて`system_count`または`current_count`） |
 | `actor_label` | VARCHAR(255) | NOT NULL | 発生元。デバイス起因なら`device_code`、人起因ならGoogleアカウントの識別ラベル（例: `25.m.kitano`）。FKではなく非正規化した文字列（デバイス/管理者が後で削除されてもログが残るように） |
 | `note` | TEXT | NULL可 | 手動調整・リセット時の理由メモ |
 | `created_at` | DATETIME | NOT NULL | 記録日時 |
 
-入出庫イベント（`entry`/`exit`）は `POST /api/v1/events` の処理と同一トランザクションで記録される
-（`app/usecases/event_usecase.py`）。`manual_adjustment` は一般ユーザー（Google SSO、許可リスト
-なし）による `POST /parking-lots/{id}/adjust`、`reset` はAdmin専用の `POST /parking-lots/{id}/reset`
-から記録される。
+入出庫イベント（`entry`/`exit`、`system_count`を変化させる）は `POST /api/v1/events` の処理と
+同一トランザクションで記録される（`app/usecases/event_usecase.py`）。`manual_adjustment`（`current_count`
+を変化させる）は一般ユーザー（Google SSO、許可リストなし）による `POST /parking-lots/{id}/adjust`、
+`reset`（同じく`current_count`）はAdmin専用の `POST /parking-lots/{id}/reset` から記録される。
 
 ### `admin_users` — 管理コンソールの許可リスト
 

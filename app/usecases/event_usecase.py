@@ -22,10 +22,14 @@ class EventUsecase:
     def record_event(
         self, *, device: Device, event_type: str, vehicle_track_id: str | None, detected_at: datetime
     ) -> ParkingEvent:
-        """Records the event and keeps the parking lot's running occupancy
-        count in sync in the same transaction (row-locked via
-        ParkingLotRepository.get_for_update, so concurrent entries/exits from
-        different devices at the same lot serialize instead of racing).
+        """Records the event and keeps the parking lot's device-reported
+        occupancy count (system_count) in sync in the same transaction
+        (row-locked via ParkingLotRepository.get_for_update, so concurrent
+        entries/exits from different devices at the same lot serialize
+        instead of racing). Deliberately does NOT touch current_count — that
+        field is reserved for manual counts (manager adjust / admin reset),
+        kept independent so one never silently overwrites the other; see
+        ParkingLot.system_count.
         Also appends a parking_activities row (actor_label=device_code) so
         this shows up alongside manual adjustments/resets in the unified log."""
         event = self.events.create(
@@ -38,16 +42,16 @@ class EventUsecase:
 
         lot = self.parking_lots.get_for_update(device.parking_lot_id)
         if lot is not None:
-            before = lot.current_count
+            before = lot.system_count
             if event_type == "entry":
-                lot.current_count += 1
+                lot.system_count += 1
             else:
-                lot.current_count = max(0, lot.current_count - 1)
+                lot.system_count = max(0, lot.system_count - 1)
             self.activities.create(
                 parking_lot_id=lot.id,
                 activity_type=event_type,
-                delta=lot.current_count - before,
-                count_after=lot.current_count,
+                delta=lot.system_count - before,
+                count_after=lot.system_count,
                 actor_label=device.device_code,
                 note=None,
             )

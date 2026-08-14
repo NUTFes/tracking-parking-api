@@ -29,5 +29,7 @@ class ParkingLotOut(BaseModel):
     id: int
     name: str
     capacity: int
-    current_count: int = Field(description="現在の駐車台数。入出庫イベントごとに増減する")
+    current_count: int = Field(description="現在の駐車台数（人力カウント）。手動増減・リセットでのみ変化する")
+    system_count: int = Field(description="デバイスが検出した入出庫イベントの集計値。current_countとは独立")
+    has_device: bool = Field(description="このparking_lotに紐づくデバイスが1台以上あるか")
     created_at: datetime

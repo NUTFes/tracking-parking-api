@@ -185,29 +185,40 @@ python3.12 -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/alembic upgrade head
 ```
 
-## 駐車台数のリセット・手動増減・活動ログ
+## current_count と system_count の分離
 
-`current_count` を直接変更する手段が3つある。いずれも `parking_activities` に記録され、
-時系列分析や「誰が変更したか」の監査に使える（`GET /parking-lots/{id}/activities`、Admin専用）。
+`parking_lots` は台数を2列で持つ。カメラ等のデバイス検出は取りこぼし・誤検出が起こりうるため、
+現地スタッフの目視カウントを「公式」な値として独立させ、どちらか一方が他方を無条件に
+上書きしないようにしている。
+
+| カラム | 更新するもの | 更新するエンドポイント |
+|---|---|---|
+| `current_count` | 人力カウント。容量比較・満車判定など「公式」な値として使われる | `POST /parking-lots/{id}/reset`（Admin）、`POST /parking-lots/{id}/adjust`（一般ユーザー） |
+| `system_count` | デバイスの入出庫イベント集計。参考情報 | `POST /events`（デバイス発） |
 
 | 操作 | エンドポイント | 認証 | 用途 |
 |---|---|---|---|
-| リセット | `POST /parking-lots/{id}/reset` | Admin | 実車確認とのズレを、指定した台数に直接補正する |
-| 手動増減 | `POST /parking-lots/{id}/adjust` | 一般ユーザー | 1台単位などで台数を増減させる |
-| 入出庫イベント | `POST /events`（デバイス発） | デバイス | 通常の検出フロー（`actor_label`にはdevice_codeが入る） |
+| リセット | `POST /parking-lots/{id}/reset` | Admin | 実車確認とのズレを、`current_count`を指定した台数に直接補正する |
+| 手動増減 | `POST /parking-lots/{id}/adjust` | 一般ユーザー | `current_count`を1台単位などで増減させる |
+| 入出庫イベント | `POST /events`（デバイス発） | デバイス | `system_count`を増減させる通常の検出フロー |
 
-リセット・手動増減の `actor_label` には、検証済みGoogleアカウントから抽出したラベル
-（例: `25.m.kitano`）が入る。
+いずれも `parking_activities` に記録され、時系列分析や「誰が変更したか」の監査に使える
+（`GET /parking-lots/{id}/activities`、Admin専用）。リセット・手動増減の `actor_label` には、
+検証済みGoogleアカウントから抽出したラベル（例: `25.m.kitano`）が入る。
+
+`ParkingLotOut` の `has_device`（`devices`とのリレーションから算出する計算プロパティ）で、
+その駐車場にデバイスが紐づいているかを判定できる。`manager` の画面では、`has_device` が
+`true` の駐車場のみ `current_count` の下に `system_count` を小さく併記する。
 
 ## データモデル
 
 | テーブル | 役割 |
 |---|---|
-| `parking_lots` | 駐車場。`current_count` は入出庫イベントごとに増減する現在の駐車台数 |
+| `parking_lots` | 駐車場。`current_count`（人力）と`system_count`（デバイス）を独立して保持 |
 | `devices` | エッジデバイス。API キーのハッシュ、最終通信時刻、最終ステータスを保持 |
 | `parking_events` | 個々の入出庫イベント（`entry` / `exit`） |
 | `device_commands` | デバイスへのコマンドキュー（`pending` → `delivered` → `completed`/`failed`） |
-| `parking_activities` | `current_count`変更の統合ログ（入出庫・手動増減・リセット、誰が/何が変更したか） |
+| `parking_activities` | `current_count`/`system_count`変更の統合ログ（入出庫・手動増減・リセット、誰が/何が変更したか） |
 | `admin_users` | Admin許可リスト（Googleアカウントのメールアドレスのみ、パスワードなし） |
 | `admin_refresh_tokens` | Adminセッションのリフレッシュトークン |
 

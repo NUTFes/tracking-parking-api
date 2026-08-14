@@ -118,3 +118,35 @@ def test_device_event_appears_in_activities_with_device_code_as_actor(client, ad
     assert activities[0]["activity_type"] == "entry"
     assert activities[0]["delta"] == 1
     assert activities[0]["actor_label"] == "trapa-dev1"
+
+
+def test_system_count_and_current_count_are_independent(client, admin_headers):
+    lot = _register_lot(client, admin_headers)
+    assert lot["has_device"] is False
+
+    device = client.post(
+        "/api/v1/devices",
+        json={"device_code": "trapa-dev1", "parking_lot_id": lot["id"]},
+        headers=admin_headers,
+    ).json()
+
+    lot_with_device = client.get(f"/api/v1/parking-lots/{lot['id']}").json()
+    assert lot_with_device["has_device"] is True
+
+    # A device event only moves system_count.
+    client.post(
+        "/api/v1/events",
+        json={"event_type": "entry", "detected_at": "2026-08-15T10:00:00"},
+        headers={"X-API-Key": device["api_key"]},
+    )
+    after_event = client.get(f"/api/v1/parking-lots/{lot['id']}").json()
+    assert after_event["system_count"] == 1
+    assert after_event["current_count"] == 0
+
+    # A manual adjustment only moves current_count.
+    client.post(
+        f"/api/v1/parking-lots/{lot['id']}/adjust", json={"delta": 4}, headers=_general_headers()
+    )
+    after_adjust = client.get(f"/api/v1/parking-lots/{lot['id']}").json()
+    assert after_adjust["current_count"] == 4
+    assert after_adjust["system_count"] == 1
