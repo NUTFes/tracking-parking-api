@@ -39,6 +39,52 @@ def test_reset_sets_exact_count_and_logs_activity(client, admin_headers):
     assert activities[0]["note"] == "実車確認による補正"
 
 
+def test_reset_system_count_and_logs_activity(client, admin_headers):
+    lot = _register_lot(client, admin_headers)
+
+    response = client.post(
+        f"/api/v1/parking-lots/{lot['id']}/reset",
+        json={"count": 4, "target": "system", "note": "デバイスずれ補正"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["system_count"] == 4
+    assert body["current_count"] == 0
+
+    activities = client.get(f"/api/v1/parking-lots/{lot['id']}/activities", headers=admin_headers).json()
+    assert len(activities) == 1
+    assert activities[0]["activity_type"] == "system_reset"
+    assert activities[0]["delta"] == 4
+    assert activities[0]["count_after"] == 4
+
+
+def test_reset_all_requires_admin(client, admin_headers):
+    _register_lot(client, admin_headers)
+    response = client.post("/api/v1/parking-lots/reset-all", json={"target": "current"})
+    assert response.status_code == 401
+
+
+def test_reset_all_zeroes_every_lot(client, admin_headers):
+    lot1 = _register_lot(client, admin_headers)
+    lot2 = client.post(
+        "/api/v1/parking-lots", json={"name": "Test Lot 2", "capacity": 20}, headers=admin_headers
+    ).json()
+    client.post(f"/api/v1/parking-lots/{lot1['id']}/reset", json={"count": 3}, headers=admin_headers)
+    client.post(f"/api/v1/parking-lots/{lot2['id']}/reset", json={"count": 9}, headers=admin_headers)
+
+    response = client.post("/api/v1/parking-lots/reset-all", json={"target": "current"}, headers=admin_headers)
+    assert response.status_code == 200
+    lots = {lot["id"]: lot for lot in response.json()}
+    assert lots[lot1["id"]]["current_count"] == 0
+    assert lots[lot2["id"]]["current_count"] == 0
+
+    activities = client.get(f"/api/v1/parking-lots/{lot1['id']}/activities", headers=admin_headers).json()
+    assert activities[0]["activity_type"] == "reset"
+    assert activities[0]["delta"] == -3
+    assert activities[0]["count_after"] == 0
+
+
 def test_adjust_requires_valid_google_token(client, admin_headers):
     lot = _register_lot(client, admin_headers)
     response = client.post(f"/api/v1/parking-lots/{lot['id']}/adjust", json={"delta": 1})

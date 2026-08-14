@@ -54,7 +54,7 @@ erDiagram
     PARKING_ACTIVITIES {
         int id PK
         int parking_lot_id FK
-        enum activity_type "entry / exit / manual_adjustment / reset"
+        enum activity_type "entry / exit / manual_adjustment / reset / system_reset"
         int delta
         int count_after
         string actor_label "device_codeまたは25.m.kitano形式のラベル"
@@ -158,14 +158,14 @@ pending --(デバイスが /heartbeat を呼ぶ)--> delivered --(デバイスが
 
 `current_count`（人力）・`system_count`（デバイス）を変化させる全ての操作（入出庫イベント・手動
 増減・リセット）を一元的に記録する統合ログ。時系列分析と「誰が変更したか」の監査を目的とする。
-`activity_type`によって`delta`/`count_after`がどちらのカウントを指すかが変わる（`entry`/`exit`は
-`system_count`、`manual_adjustment`/`reset`は`current_count`）。
+`activity_type`によって`delta`/`count_after`がどちらのカウントを指すかが変わる（`entry`/`exit`/
+`system_reset`は`system_count`、`manual_adjustment`/`reset`は`current_count`）。
 
 | カラム | 型 | 制約 | 説明 |
 |---|---|---|---|
 | `id` | INT | PK, AUTO_INCREMENT | |
 | `parking_lot_id` | INT | FK → `parking_lots.id` ON DELETE CASCADE, NOT NULL, INDEX | 対象駐車場 |
-| `activity_type` | ENUM('entry','exit','manual_adjustment','reset') | NOT NULL | 活動種別。`entry`/`exit`は`system_count`、`manual_adjustment`/`reset`は`current_count`に対する変化を表す |
+| `activity_type` | ENUM('entry','exit','manual_adjustment','reset','system_reset') | NOT NULL | 活動種別。`entry`/`exit`/`system_reset`は`system_count`、`manual_adjustment`/`reset`は`current_count`に対する変化を表す |
 | `delta` | INT | NOT NULL | この活動による増減（実際に適用された値。0未満へのクランプ後） |
 | `count_after` | INT | NOT NULL | この活動が反映された後の値（`activity_type`に応じて`system_count`または`current_count`） |
 | `actor_label` | VARCHAR(255) | NOT NULL | 発生元。デバイス起因なら`device_code`、人起因ならGoogleアカウントの識別ラベル（例: `25.m.kitano`）。FKではなく非正規化した文字列（デバイス/管理者が後で削除されてもログが残るように） |
@@ -175,7 +175,10 @@ pending --(デバイスが /heartbeat を呼ぶ)--> delivered --(デバイスが
 入出庫イベント（`entry`/`exit`、`system_count`を変化させる）は `POST /api/v1/events` の処理と
 同一トランザクションで記録される（`app/usecases/event_usecase.py`）。`manual_adjustment`（`current_count`
 を変化させる）は一般ユーザー（Google SSO、許可リストなし）による `POST /parking-lots/{id}/adjust`、
-`reset`（同じく`current_count`）はAdmin専用の `POST /parking-lots/{id}/reset` から記録される。
+`reset`/`system_reset`（`target`で`current_count`/`system_count`のどちらを対象にするか指定）は
+Admin専用の `POST /parking-lots/{id}/reset` から記録される。`POST /parking-lots/reset-all`
+（`target`指定、Admin専用）は全駐車場の`current_count`または`system_count`を一括で0にリセットし、
+駐車場ごとに1件ずつ同じログを記録する。
 
 ### `admin_users` — 管理コンソールの許可リスト
 

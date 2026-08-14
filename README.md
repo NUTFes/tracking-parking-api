@@ -99,7 +99,8 @@ Google）で取得したIDトークンを `POST /api/v1/auth/google` に送り�
   RTが無効/失効していれば401を返す（Googleへの再検証は発生しない — ATの有効期限が切れる
   たびに毎回Googleサインインし直す必要はない）。
 
-保護範囲: `POST /parking-lots`、`POST /parking-lots/{id}/reset`、`GET /parking-lots/{id}/events`、
+保護範囲: `POST /parking-lots`、`POST /parking-lots/{id}/reset`、`POST /parking-lots/reset-all`、
+`GET /parking-lots/{id}/events`、
 `GET /parking-lots/{id}/activities`、`devices` 配下の全エンドポイント（一覧・登録・コマンド発行/履歴）が
 管理者ログインを必須とする。`GET /parking-lots`（一覧・詳細）と `GET /health` は Web（公開ビューア）が
 使うため認証不要のまま。デバイス ↔ API は従来どおり `X-API-Key` による別系統の認証。
@@ -193,12 +194,13 @@ python3.12 -m venv .venv && .venv/bin/pip install -r requirements.txt
 
 | カラム | 更新するもの | 更新するエンドポイント |
 |---|---|---|
-| `current_count` | 人力カウント。容量比較・満車判定など「公式」な値として使われる | `POST /parking-lots/{id}/reset`（Admin）、`POST /parking-lots/{id}/adjust`（一般ユーザー） |
-| `system_count` | デバイスの入出庫イベント集計。参考情報 | `POST /events`（デバイス発） |
+| `current_count` | 人力カウント。容量比較・満車判定など「公式」な値として使われる | `POST /parking-lots/{id}/reset`（`target=current`、Admin）、`POST /parking-lots/{id}/adjust`（一般ユーザー） |
+| `system_count` | デバイスの入出庫イベント集計。参考情報 | `POST /events`（デバイス発）、`POST /parking-lots/{id}/reset`（`target=system`、Admin） |
 
 | 操作 | エンドポイント | 認証 | 用途 |
 |---|---|---|---|
-| リセット | `POST /parking-lots/{id}/reset` | Admin | 実車確認とのズレを、`current_count`を指定した台数に直接補正する |
+| リセット | `POST /parking-lots/{id}/reset` | Admin | `target`（`current`/`system`）で指定した方を、実車確認や機器ズレの補正のため指定台数に直接設定する |
+| 一括リセット | `POST /parking-lots/reset-all` | Admin | `target`で指定した方（`current`/`system`）を全駐車場まとめて0にリセットする（イベント開始時の初期化など） |
 | 手動増減 | `POST /parking-lots/{id}/adjust` | 一般ユーザー | `current_count`を1台単位などで増減させる |
 | 入出庫イベント | `POST /events`（デバイス発） | デバイス | `system_count`を増減させる通常の検出フロー |
 

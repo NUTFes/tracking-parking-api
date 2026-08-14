@@ -6,7 +6,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 from app.utils import now_local
 
-ACTIVITY_TYPES = ("entry", "exit", "manual_adjustment", "reset")
+ACTIVITY_TYPES = ("entry", "exit", "manual_adjustment", "reset", "system_reset")
 
 
 class ParkingActivity(Base):

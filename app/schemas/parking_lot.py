@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -15,6 +16,14 @@ class ParkingLotUpdate(BaseModel):
 
 class ParkingLotResetIn(BaseModel):
     count: int = Field(ge=0, description="リセット後の駐車台数")
+    target: Literal["current", "system"] = Field(
+        default="current", description="リセット対象（current=人力集計 / system=システム集計）"
+    )
+    note: str | None = Field(default=None, description="リセット理由（任意）")
+
+
+class ParkingLotResetAllIn(BaseModel):
+    target: Literal["current", "system"] = Field(description="リセット対象（current=人力集計 / system=システム集計）")
     note: str | None = Field(default=None, description="リセット理由（任意）")
 
 

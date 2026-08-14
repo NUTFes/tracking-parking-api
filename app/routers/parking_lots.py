@@ -11,6 +11,7 @@ from app.schemas.parking_lot import (
     ParkingLotAdjustIn,
     ParkingLotCreate,
     ParkingLotOut,
+    ParkingLotResetAllIn,
     ParkingLotResetIn,
     ParkingLotUpdate,
 )
@@ -69,9 +70,27 @@ def reset_parking_lot(
     admin: AdminUser = Depends(get_current_admin_user),
     usecase: ParkingLotUsecase = Depends(get_parking_lot_usecase),
 ):
-    """現在の駐車台数を指定した値に直接設定する。実車確認とのズレを補正するための
-    Admin専用操作で、parking_activitiesに記録される（Adminコンソールからのみ実行可）。"""
-    return usecase.reset_count(lot_id, count=payload.count, actor_label=label_from_email(admin.email), note=payload.note)
+    """人力集計（current）またはシステム集計（system）を指定した値に直接設定する。実車確認
+    や機器ズレを補正するためのAdmin専用操作で、parking_activitiesに記録される
+    （Adminコンソールからのみ実行可）。"""
+    return usecase.reset_count(
+        lot_id,
+        count=payload.count,
+        target=payload.target,
+        actor_label=label_from_email(admin.email),
+        note=payload.note,
+    )
+
+
+@router.post("/reset-all", response_model=list[ParkingLotOut], summary="全駐車場の台数を一括リセット")
+def reset_all_parking_lots(
+    payload: ParkingLotResetAllIn,
+    admin: AdminUser = Depends(get_current_admin_user),
+    usecase: ParkingLotUsecase = Depends(get_parking_lot_usecase),
+):
+    """全ての駐車場の人力集計またはシステム集計を一括で0にリセットする（イベント開始時の
+    初期化などを想定したAdmin専用操作）。parking_activitiesに記録される。"""
+    return usecase.reset_all_counts(target=payload.target, actor_label=label_from_email(admin.email), note=payload.note)
 
 
 @router.post("/{lot_id}/adjust", response_model=ParkingLotOut, summary="駐車台数の手動増減")

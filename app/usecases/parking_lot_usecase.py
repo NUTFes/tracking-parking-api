@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from fastapi import Depends
 from sqlalchemy.orm import Session
@@ -51,26 +52,62 @@ class ParkingLotUsecase:
         self.parking_lots.delete(lot)
         self.db.commit()
 
-    def reset_count(self, lot_id: int, *, count: int, actor_label: str, note: str | None) -> ParkingLot:
-        """Admin-only: force current_count to an exact value (e.g. after
-        reconciling against a physical headcount)."""
+    def reset_count(
+        self, lot_id: int, *, count: int, target: Literal["current", "system"], actor_label: str, note: str | None
+    ) -> ParkingLot:
+        """Admin-only: force current_count or system_count to an exact value
+        (e.g. after reconciling against a physical headcount, or correcting
+        device drift)."""
         lot = self.parking_lots.get_for_update(lot_id)
         if lot is None:
             raise NotFoundError("parking lot not found")
 
-        delta = count - lot.current_count
-        lot.current_count = count
+        if target == "current":
+            delta = count - lot.current_count
+            lot.current_count = count
+            activity_type = "reset"
+        else:
+            delta = count - lot.system_count
+            lot.system_count = count
+            activity_type = "system_reset"
+
         self.activities.create(
             parking_lot_id=lot.id,
-            activity_type="reset",
+            activity_type=activity_type,
             delta=delta,
-            count_after=lot.current_count,
+            count_after=count,
             actor_label=actor_label,
             note=note,
         )
         self.db.commit()
         self.db.refresh(lot)
         return lot
+
+    def reset_all_counts(
+        self, *, target: Literal["current", "system"], actor_label: str, note: str | None
+    ) -> list[ParkingLot]:
+        """Admin-only: reset every parking lot's current_count or
+        system_count to 0 in one operation (e.g. at the start of an event)."""
+        lots = self.parking_lots.list_all()
+        activity_type = "reset" if target == "current" else "system_reset"
+        for lot in lots:
+            before = lot.current_count if target == "current" else lot.system_count
+            if target == "current":
+                lot.current_count = 0
+            else:
+                lot.system_count = 0
+            self.activities.create(
+                parking_lot_id=lot.id,
+                activity_type=activity_type,
+                delta=-before,
+                count_after=0,
+                actor_label=actor_label,
+                note=note,
+            )
+        self.db.commit()
+        for lot in lots:
+            self.db.refresh(lot)
+        return lots
 
     def adjust_count(self, lot_id: int, *, delta: int, actor_label: str, note: str | None) -> ParkingLot:
         """General-user operation: nudge current_count by a signed delta,
