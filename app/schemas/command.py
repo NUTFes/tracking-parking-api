@@ -5,7 +5,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class CommandCreate(BaseModel):
-    command_type: Literal["restart"] = Field(description="コマンド種別（現在は再起動のみ対応）")
+    command_type: Literal["restart", "start_counting", "stop_counting"] = Field(
+        description="コマンド種別（restart=再起動 / start_counting=集計開始 / stop_counting=集計停止）"
+    )
     requested_by: str | None = Field(default=None, description="コマンドを発行した主体（管理者名など、任意）")
 
 

@@ -43,7 +43,7 @@ erDiagram
     DEVICE_COMMANDS {
         int id PK
         int device_id FK
-        enum command_type "restart"
+        enum command_type "restart / start_counting / stop_counting"
         enum status "pending / delivered / completed / failed"
         string requested_by "nullable"
         text result_message "nullable"
@@ -140,7 +140,7 @@ erDiagram
 |---|---|---|---|
 | `id` | INT | PK, AUTO_INCREMENT | |
 | `device_id` | INT | FK → `devices.id` ON DELETE CASCADE, NOT NULL, INDEX | コマンドの宛先デバイス |
-| `command_type` | ENUM('restart') | NOT NULL | コマンド種別。現状は再起動のみ |
+| `command_type` | ENUM('restart','start_counting','stop_counting') | NOT NULL | コマンド種別。restart=再起動 / start_counting=集計開始 / stop_counting=集計停止 |
 | `status` | ENUM('pending','delivered','completed','failed') | NOT NULL, 既定値`pending` | 状態遷移は下記参照 |
 | `requested_by` | VARCHAR(255) | NULL可 | 発行者（Webダッシュボードなど） |
 | `result_message` | TEXT | NULL可 | デバイスからの実行結果メッセージ |

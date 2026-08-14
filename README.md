@@ -41,10 +41,11 @@ API のみで完結させている。
 - **デバイスのヘルスチェック**: エッジデバイスが定期的に `POST /api/v1/heartbeat` を呼び、
   サーバーは最終通信時刻を記録する。一定時間（`DEVICE_OFFLINE_THRESHOLD_SECONDS`）通信が
   なければオフライン扱いになる。
-- **デバイスの再起動**: Web / 管理者が `POST /api/v1/devices/{id}/commands` でコマンドを
-  キューに積む。エッジデバイスは次の `heartbeat` 呼び出しのレスポンスでコマンドを受け取り、
-  実行後に `POST /api/v1/commands/{id}/ack` で結果を報告する。サーバーからデバイスへの
-  直接プッシュは行わない。
+- **デバイスの再起動・集計開始/停止**: Admin が `POST /api/v1/devices/{id}/commands` で
+  コマンド（`restart` / `start_counting` / `stop_counting`）をキューに積む。エッジデバイスは
+  次の `heartbeat` 呼び出しのレスポンスでコマンドを受け取り、実行後に
+  `POST /api/v1/commands/{id}/ack` で結果を報告する。サーバーからデバイスへの直接プッシュは
+  行わない。
 
 この設計により、追加のインフラ（VPN・SSH トンネル等）なしに API サーバーと DB だけで
 双方向のデバイス管理が成立する（リアルタイム性はハートビート間隔に依存する）。
@@ -57,7 +58,7 @@ API のみで完結させている。
 | メソッド | パス | 用途 |
 |---|---|---|
 | `POST` | `/api/v1/events` | 入出庫イベント登録（`entry`/`exit`）。検出のたびに呼ぶ |
-| `POST` | `/api/v1/heartbeat` | 生存確認。定期的に呼び、レスポンスでキュー済みコマンド（再起動など）を受け取る |
+| `POST` | `/api/v1/heartbeat` | 生存確認。定期的に呼び、レスポンスでキュー済みコマンド（再起動・集計開始/停止）を受け取る |
 | `POST` | `/api/v1/commands/{command_id}/ack` | heartbeatで受け取ったコマンドの実行結果報告 |
 
 実装は `routers/events.py` と `routers/heartbeat.py`。

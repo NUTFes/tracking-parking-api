@@ -74,6 +74,24 @@ def test_restart_command_is_delivered_via_heartbeat_and_acked(client, admin_head
     assert history[0]["status"] == "completed"
 
 
+def test_start_and_stop_counting_commands_are_queueable(client, admin_headers):
+    _lot, device = _register_lot_and_device(client, admin_headers)
+    headers = {"X-API-Key": device["api_key"]}
+
+    for command_type in ("start_counting", "stop_counting"):
+        queued = client.post(
+            f"/api/v1/devices/{device['id']}/commands",
+            json={"command_type": command_type},
+            headers=admin_headers,
+        )
+        assert queued.status_code == 201
+        assert queued.json()["command_type"] == command_type
+
+    heartbeat = client.post("/api/v1/heartbeat", json={"status": "ok"}, headers=headers)
+    delivered_types = {c["command_type"] for c in heartbeat.json()["commands"]}
+    assert delivered_types == {"start_counting", "stop_counting"}
+
+
 def test_cannot_ack_another_devices_command(client, admin_headers):
     _lot, device_a = _register_lot_and_device(client, admin_headers, "dev-a")
     _lot2, device_b = _register_lot_and_device(client, admin_headers, "dev-b")

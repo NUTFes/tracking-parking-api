@@ -6,7 +6,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 from app.utils import now_local
 
-COMMAND_TYPES = ("restart",)
+COMMAND_TYPES = ("restart", "start_counting", "stop_counting")
 COMMAND_STATUSES = ("pending", "delivered", "completed", "failed")
 
 

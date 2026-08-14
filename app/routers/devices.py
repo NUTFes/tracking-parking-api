@@ -99,8 +99,8 @@ def queue_command(
     usecase: DeviceUsecase = Depends(get_device_usecase),
     _admin: AdminUser = Depends(get_current_admin_user),
 ):
-    """デバイスへのコマンド（再起動など）をキューに積む。デバイスは次回の
-    /heartbeat 呼び出し時にこれを受け取る。サーバーからデバイスへの直接
+    """デバイスへのコマンド（再起動・集計開始・集計停止）をキューに積む。デバイスは
+    次回の /heartbeat 呼び出し時にこれを受け取る。サーバーからデバイスへの直接
     プッシュは行わない。"""
     return usecase.queue_command(device_id, command_type=payload.command_type, requested_by=payload.requested_by)
 
