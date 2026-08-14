@@ -9,6 +9,7 @@ MySQL 9.2。スキーマは Alembic マイグレーション（`migrations/versi
 ```mermaid
 erDiagram
     PARKING_LOTS ||--o{ DEVICES : "1つの駐車場に複数のデバイス"
+    PARKING_LOTS ||--o{ PARKING_ACTIVITIES : "1つの駐車場に複数の活動ログ"
     DEVICES ||--o{ PARKING_EVENTS : "1台のデバイスが複数のイベントを検出"
     DEVICES ||--o{ DEVICE_COMMANDS : "1台のデバイスに複数のコマンド"
     ADMIN_USERS ||--o{ ADMIN_REFRESH_TOKENS : "1ユーザーが複数のリフレッシュトークンを保持"
@@ -49,10 +50,19 @@ erDiagram
         datetime delivered_at "nullable"
         datetime completed_at "nullable"
     }
+    PARKING_ACTIVITIES {
+        int id PK
+        int parking_lot_id FK
+        enum activity_type "entry / exit / manual_adjustment / reset"
+        int delta
+        int count_after
+        string actor_label "device_codeまたは25.m.kitano形式のラベル"
+        text note "nullable"
+        datetime created_at
+    }
     ADMIN_USERS {
         int id PK
-        string username UK
-        string password_hash "bcrypt"
+        string email UK "Googleアカウント、許可リスト"
         datetime created_at
     }
     ADMIN_REFRESH_TOKENS {
@@ -136,16 +146,40 @@ erDiagram
 pending --(デバイスが /heartbeat を呼ぶ)--> delivered --(デバイスが /commands/{id}/ack を呼ぶ)--> completed | failed
 ```
 
-### `admin_users` — 管理者アカウント
+### `parking_activities` — 駐車場の活動ログ
+
+`current_count` を変化させる全ての操作（入出庫イベント・手動増減・リセット）を一元的に記録する
+統合ログ。時系列分析と「誰が変更したか」の監査を目的とする。
 
 | カラム | 型 | 制約 | 説明 |
 |---|---|---|---|
 | `id` | INT | PK, AUTO_INCREMENT | |
-| `username` | VARCHAR(64) | UNIQUE, NOT NULL | ログインID |
-| `password_hash` | VARCHAR(255) | NOT NULL | bcryptハッシュ |
-| `created_at` | DATETIME | NOT NULL | 作成日時 |
+| `parking_lot_id` | INT | FK → `parking_lots.id` ON DELETE CASCADE, NOT NULL, INDEX | 対象駐車場 |
+| `activity_type` | ENUM('entry','exit','manual_adjustment','reset') | NOT NULL | 活動種別 |
+| `delta` | INT | NOT NULL | この活動による`current_count`の増減（実際に適用された値。0未満へのクランプ後） |
+| `count_after` | INT | NOT NULL | この活動が反映された後の`current_count` |
+| `actor_label` | VARCHAR(255) | NOT NULL | 発生元。デバイス起因なら`device_code`、人起因ならGoogleアカウントの識別ラベル（例: `25.m.kitano`）。FKではなく非正規化した文字列（デバイス/管理者が後で削除されてもログが残るように） |
+| `note` | TEXT | NULL可 | 手動調整・リセット時の理由メモ |
+| `created_at` | DATETIME | NOT NULL | 記録日時 |
 
-セルフサインアップはなく、`scripts/create_admin_user.py` でCLIから作成する（[本README](../README.md#管理者アカウントの作成)参照）。
+入出庫イベント（`entry`/`exit`）は `POST /api/v1/events` の処理と同一トランザクションで記録される
+（`app/usecases/event_usecase.py`）。`manual_adjustment` は一般ユーザー（Google SSO、許可リスト
+なし）による `POST /parking-lots/{id}/adjust`、`reset` はAdmin専用の `POST /parking-lots/{id}/reset`
+から記録される。
+
+### `admin_users` — 管理コンソールの許可リスト
+
+| カラム | 型 | 制約 | 説明 |
+|---|---|---|---|
+| `id` | INT | PK, AUTO_INCREMENT | |
+| `email` | VARCHAR(255) | UNIQUE, NOT NULL | 許可されたGoogleアカウントのメールアドレス |
+| `created_at` | DATETIME | NOT NULL | 追加日時 |
+
+パスワードは持たない。ログイン時にGoogle IDトークンを検証し、そのメールアドレスがこのテーブルに
+存在するかどうかだけを見る（許可リスト）。セルフサインアップはなく、
+`scripts/manage_admin_allowlist.py` でCLIから追加・削除する（[本README](../README.md#管理者アカウントの許可リスト管理)参照）。
+なお、いずれのメールアドレスも実行委員の命名規則（`NN.x.姓.nutfes@gmail.com`）に一致することが
+リクエストのたびに検証される（`app/google_auth.py`）。
 
 ### `admin_refresh_tokens` — リフレッシュトークン
 

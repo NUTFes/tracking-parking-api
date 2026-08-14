@@ -8,6 +8,11 @@ class Settings(BaseSettings):
     device_offline_threshold_seconds: int = 120
     cors_origins: str = "http://localhost:5173,http://localhost:5174"
 
+    # Google Sign-In (Identity Services). Both admin-web (with an allow-list,
+    # see admin_users) and web (any correctly-formatted NUTFes account, see
+    # app/google_auth.py) verify ID tokens against this OAuth client ID.
+    google_client_id: str = "your-client-id.apps.googleusercontent.com"
+
     # Admin authentication (services/admin-web). Access tokens are short-lived JWTs
     # kept in memory by the frontend; refresh tokens are opaque, DB-backed, and
     # delivered only via an HttpOnly cookie.

@@ -4,13 +4,13 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app import google_auth
 from app.database import Base, get_db
+from app.exceptions import UnauthorizedError
 from app.main import app
 from app.models.admin_user import AdminUser
-from app.security import hash_password
 
-ADMIN_USERNAME = "test-admin"
-ADMIN_PASSWORD = "test-password"
+ADMIN_EMAIL = "25.m.kitano.nutfes@gmail.com"
 
 engine = create_engine(
     "sqlite:///:memory:",
@@ -41,8 +41,25 @@ def _override_get_db():
 app.dependency_overrides[get_db] = _override_get_db
 
 
+def fake_google_id_token(email: str) -> str:
+    """Stand-in for a real Google-signed ID token in tests — see
+    _fake_verify_google_id_token below, which is the only thing that ever
+    "verifies" it. Real Google verification is never exercised in tests."""
+    return f"faketoken:{email}"
+
+
+def _fake_verify_google_id_token(raw_token: str) -> str:
+    if not raw_token.startswith("faketoken:"):
+        raise UnauthorizedError("invalid Google ID token")
+    email = raw_token.removeprefix("faketoken:")
+    if not google_auth.NUTFES_EMAIL_PATTERN.match(email):
+        raise UnauthorizedError("メールアドレスの形式が実行委員の規則に合致しません")
+    return email
+
+
 @pytest.fixture(autouse=True)
-def _reset_db():
+def _reset_db(monkeypatch):
+    monkeypatch.setattr(google_auth, "verify_google_id_token", _fake_verify_google_id_token)
     Base.metadata.create_all(bind=engine)
     yield
     Base.metadata.drop_all(bind=engine)
@@ -57,7 +74,7 @@ def client():
 def admin_user():
     db = TestingSessionLocal()
     try:
-        user = AdminUser(username=ADMIN_USERNAME, password_hash=hash_password(ADMIN_PASSWORD))
+        user = AdminUser(email=ADMIN_EMAIL)
         db.add(user)
         db.commit()
         db.refresh(user)
@@ -68,9 +85,7 @@ def admin_user():
 
 @pytest.fixture
 def admin_token(client, admin_user):
-    response = client.post(
-        "/api/v1/auth/login", json={"username": ADMIN_USERNAME, "password": ADMIN_PASSWORD}
-    )
+    response = client.post("/api/v1/auth/google", json={"id_token": fake_google_id_token(ADMIN_EMAIL)})
     assert response.status_code == 200
     return response.json()["access_token"]
 

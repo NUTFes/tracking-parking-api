@@ -3,6 +3,7 @@ from datetime import timedelta
 from fastapi import Depends
 from sqlalchemy.orm import Session
 
+from app import google_auth
 from app.auth import create_access_token
 from app.config import settings
 from app.database import get_db
@@ -10,7 +11,7 @@ from app.exceptions import UnauthorizedError
 from app.models.admin_user import AdminUser
 from app.repositories.admin_refresh_token_repository import AdminRefreshTokenRepository
 from app.repositories.admin_user_repository import AdminUserRepository
-from app.security import generate_secret_token, hash_token, verify_password
+from app.security import generate_secret_token, hash_token
 from app.utils import now_local
 
 
@@ -20,11 +21,16 @@ class AuthUsecase:
         self.users = AdminUserRepository(db)
         self.refresh_tokens = AdminRefreshTokenRepository(db)
 
-    def login(self, *, username: str, password: str) -> tuple[AdminUser, str, str]:
-        """Returns (user, access_token, plaintext_refresh_token)."""
-        user = self.users.get_by_username(username)
-        if user is None or not verify_password(password, user.password_hash):
-            raise UnauthorizedError("ユーザー名またはパスワードが正しくありません")
+    def login_with_google(self, *, id_token: str) -> tuple[AdminUser, str, str]:
+        """Verifies the Google ID token, then checks the verified email
+        against the admin allow-list (app.models.admin_user.AdminUser —
+        provisioned via scripts/manage_admin_allowlist.py). Accounts that pass
+        Google verification but aren't allow-listed are rejected here, same
+        as an unknown user in the old password flow."""
+        email = google_auth.verify_google_id_token(id_token)
+        user = self.users.get_by_email(email)
+        if user is None:
+            raise UnauthorizedError("このGoogleアカウントは管理者として許可されていません")
         return self._issue_tokens(user)
 
     def refresh(self, *, raw_refresh_token: str | None) -> tuple[AdminUser, str, str]:

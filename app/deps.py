@@ -3,6 +3,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
+from app import google_auth
 from app.auth import decode_access_token
 from app.database import get_db
 from app.models.admin_user import AdminUser
@@ -15,8 +16,17 @@ from app.security import hash_token
 # with the rest of the app) instead of each scheme's default error, while still
 # getting them registered as OpenAPI security schemes (Swagger's padlock icon
 # and "Authorize" button, and per-endpoint `security` requirements).
-_bearer_scheme = HTTPBearer(auto_error=False, description="Admin console access token (from /auth/login)")
+_bearer_scheme = HTTPBearer(
+    auto_error=False, scheme_name="AdminAccessToken", description="Admin console access token (from /auth/google)"
+)
 _api_key_scheme = APIKeyHeader(name="X-API-Key", auto_error=False, description="Edge device API key")
+# Distinct scheme_name from _bearer_scheme: both are structurally HTTPBearer,
+# but this one carries a raw Google ID token (verified per-request against
+# Google, no session of ours), not our own JWT — keep them visually separate
+# in the OpenAPI/Swagger UI.
+_google_id_token_scheme = HTTPBearer(
+    auto_error=False, scheme_name="GoogleIdToken", description="Google ID token (Sign In With Google)"
+)
 
 
 def get_current_device(
@@ -58,3 +68,20 @@ def get_current_admin_user(
     if user is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="user not found")
     return user
+
+
+def get_current_general_user_label(
+    credentials: HTTPAuthorizationCredentials | None = Depends(_google_id_token_scheme),
+) -> str:
+    """Resolves the acting person's log label (e.g. "25.m.kitano") from a raw
+    Google ID token sent directly by the frontend (services/web) on each
+    request. Unlike admin auth, this issues no session of ours — every
+    mutating request re-verifies the token against Google — and there's no
+    allow-list: any Google account matching the NUTFes executive-committee
+    email format is accepted. Used only by the manual parking-count-adjustment
+    endpoint, which is intentionally lightweight."""
+    if credentials is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Google ID token is required")
+
+    email = google_auth.verify_google_id_token(credentials.credentials)
+    return google_auth.label_from_email(email)

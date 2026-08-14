@@ -1,10 +1,8 @@
-from tests.conftest import ADMIN_PASSWORD, ADMIN_USERNAME
+from tests.conftest import ADMIN_EMAIL, fake_google_id_token
 
 
 def test_login_success_returns_access_token_and_sets_refresh_cookie(client, admin_user):
-    response = client.post(
-        "/api/v1/auth/login", json={"username": ADMIN_USERNAME, "password": ADMIN_PASSWORD}
-    )
+    response = client.post("/api/v1/auth/google", json={"id_token": fake_google_id_token(ADMIN_EMAIL)})
     assert response.status_code == 200
     body = response.json()
     assert body["access_token"]
@@ -12,17 +10,23 @@ def test_login_success_returns_access_token_and_sets_refresh_cookie(client, admi
     assert "trapa_admin_rt" in response.cookies
 
 
-def test_login_rejects_wrong_password(client, admin_user):
+def test_login_rejects_email_not_in_allowlist(client):
+    # Correctly formatted NUTFes account, but never added via manage_admin_allowlist.py
     response = client.post(
-        "/api/v1/auth/login", json={"username": ADMIN_USERNAME, "password": "wrong-password"}
+        "/api/v1/auth/google", json={"id_token": fake_google_id_token("25.m.suzuki.nutfes@gmail.com")}
     )
     assert response.status_code == 401
 
 
-def test_login_rejects_unknown_user(client):
+def test_login_rejects_malformed_email(client):
     response = client.post(
-        "/api/v1/auth/login", json={"username": "nobody", "password": "whatever"}
+        "/api/v1/auth/google", json={"id_token": fake_google_id_token("not-a-nutfes-address@gmail.com")}
     )
+    assert response.status_code == 401
+
+
+def test_login_rejects_invalid_token(client):
+    response = client.post("/api/v1/auth/google", json={"id_token": "garbage"})
     assert response.status_code == 401
 
 
@@ -31,14 +35,11 @@ def test_me_requires_valid_access_token(client, admin_headers):
 
     response = client.get("/api/v1/auth/me", headers=admin_headers)
     assert response.status_code == 200
-    assert response.json()["username"] == ADMIN_USERNAME
+    assert response.json()["email"] == ADMIN_EMAIL
 
 
 def test_refresh_issues_new_access_token_and_rotates_cookie(client, admin_user):
-    login = client.post(
-        "/api/v1/auth/login", json={"username": ADMIN_USERNAME, "password": ADMIN_PASSWORD}
-    )
-    old_access_token = login.json()["access_token"]
+    client.post("/api/v1/auth/google", json={"id_token": fake_google_id_token(ADMIN_EMAIL)})
     old_rt_cookie = client.cookies.get("trapa_admin_rt")
 
     refreshed = client.post("/api/v1/auth/refresh")
@@ -58,7 +59,7 @@ def test_refresh_without_cookie_fails(client):
 
 
 def test_refresh_rejects_reused_rotated_token(client, admin_user):
-    client.post("/api/v1/auth/login", json={"username": ADMIN_USERNAME, "password": ADMIN_PASSWORD})
+    client.post("/api/v1/auth/google", json={"id_token": fake_google_id_token(ADMIN_EMAIL)})
     old_raw_cookie = client.cookies.get("trapa_admin_rt")
 
     first_refresh = client.post("/api/v1/auth/refresh")
@@ -71,7 +72,7 @@ def test_refresh_rejects_reused_rotated_token(client, admin_user):
 
 
 def test_logout_revokes_refresh_token(client, admin_user):
-    client.post("/api/v1/auth/login", json={"username": ADMIN_USERNAME, "password": ADMIN_PASSWORD})
+    client.post("/api/v1/auth/google", json={"id_token": fake_google_id_token(ADMIN_EMAIL)})
 
     logout = client.post("/api/v1/auth/logout")
     assert logout.status_code == 204

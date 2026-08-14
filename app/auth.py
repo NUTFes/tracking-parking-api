@@ -18,7 +18,7 @@ def create_access_token(user: AdminUser) -> str:
     now = datetime.now(timezone.utc)
     payload = {
         "sub": str(user.id),
-        "username": user.username,
+        "email": user.email,
         "iat": now,
         "exp": now + timedelta(minutes=settings.access_token_expire_minutes),
     }

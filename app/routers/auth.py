@@ -5,7 +5,7 @@ from app.config import settings
 from app.deps import get_current_admin_user
 from app.exceptions import UnauthorizedError
 from app.models.admin_user import AdminUser
-from app.schemas.auth import LoginIn, TokenOut, UserOut
+from app.schemas.auth import GoogleLoginIn, TokenOut, UserOut
 from app.usecases.auth_usecase import AuthUsecase, get_auth_usecase
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -15,15 +15,16 @@ def _token_response(access_token: str) -> TokenOut:
     return TokenOut(access_token=access_token, expires_in=settings.access_token_expire_minutes * 60)
 
 
-@router.post("/login", response_model=TokenOut, summary="管理者ログイン")
-def login(
-    payload: LoginIn,
+@router.post("/google", response_model=TokenOut, summary="管理者ログイン（Google SSO）")
+def login_with_google(
+    payload: GoogleLoginIn,
     response: Response,
     usecase: AuthUsecase = Depends(get_auth_usecase),
 ):
-    """ユーザー名とパスワードを検証し、アクセストークンを返す。同時にリフレッシュ
-    トークンをHTTP OnlyクッキーとしてセットするAdmin console向けのログイン。"""
-    _user, access_token, refresh_token = usecase.login(username=payload.username, password=payload.password)
+    """GoogleのIDトークンを検証し、そのメールアドレスが管理者許可リストに
+    含まれていればアクセストークンを返す。同時にリフレッシュトークンを
+    HTTP OnlyクッキーとしてセットするAdmin console向けのログイン。"""
+    _user, access_token, refresh_token = usecase.login_with_google(id_token=payload.id_token)
     set_refresh_cookie(response, refresh_token)
     return _token_response(access_token)
 

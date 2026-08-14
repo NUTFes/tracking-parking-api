@@ -2,10 +2,18 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, Query, status
 
-from app.deps import get_current_admin_user
+from app.deps import get_current_admin_user, get_current_general_user_label
+from app.google_auth import label_from_email
 from app.models.admin_user import AdminUser
 from app.schemas.event import EventOut
-from app.schemas.parking_lot import ParkingLotCreate, ParkingLotOut, ParkingLotUpdate
+from app.schemas.parking_activity import ParkingActivityOut
+from app.schemas.parking_lot import (
+    ParkingLotAdjustIn,
+    ParkingLotCreate,
+    ParkingLotOut,
+    ParkingLotResetIn,
+    ParkingLotUpdate,
+)
 from app.usecases.parking_lot_usecase import ParkingLotUsecase, get_parking_lot_usecase
 
 router = APIRouter(prefix="/parking-lots", tags=["parking-lots"])
@@ -54,6 +62,31 @@ def delete_parking_lot(
     usecase.delete_parking_lot(lot_id)
 
 
+@router.post("/{lot_id}/reset", response_model=ParkingLotOut, summary="駐車台数のリセット")
+def reset_parking_lot(
+    lot_id: int,
+    payload: ParkingLotResetIn,
+    admin: AdminUser = Depends(get_current_admin_user),
+    usecase: ParkingLotUsecase = Depends(get_parking_lot_usecase),
+):
+    """現在の駐車台数を指定した値に直接設定する。実車確認とのズレを補正するための
+    Admin専用操作で、parking_activitiesに記録される（Adminコンソールからのみ実行可）。"""
+    return usecase.reset_count(lot_id, count=payload.count, actor_label=label_from_email(admin.email), note=payload.note)
+
+
+@router.post("/{lot_id}/adjust", response_model=ParkingLotOut, summary="駐車台数の手動増減")
+def adjust_parking_lot(
+    lot_id: int,
+    payload: ParkingLotAdjustIn,
+    actor_label: str = Depends(get_current_general_user_label),
+    usecase: ParkingLotUsecase = Depends(get_parking_lot_usecase),
+):
+    """現在の駐車台数を指定した数だけ増減させる（0未満にはならない）。Googleアカウントの
+    形式検証のみで利用できる一般ユーザー向けの操作（Adminログインは不要）で、
+    parking_activitiesに記録される。"""
+    return usecase.adjust_count(lot_id, delta=payload.delta, actor_label=actor_label, note=payload.note)
+
+
 @router.get("/{lot_id}/events", response_model=list[EventOut], summary="駐車場の入出庫履歴取得")
 def list_parking_lot_events(
     lot_id: int,
@@ -65,3 +98,15 @@ def list_parking_lot_events(
 ):
     """指定した駐車場に紐づく入出庫イベントを検出日時の新しい順に返す。"""
     return usecase.list_events(lot_id, since=since, until=until, limit=limit)
+
+
+@router.get("/{lot_id}/activities", response_model=list[ParkingActivityOut], summary="駐車場の活動ログ取得")
+def list_parking_lot_activities(
+    lot_id: int,
+    limit: int = Query(default=100, le=1000, description="取得件数の上限（最大1000）"),
+    usecase: ParkingLotUsecase = Depends(get_parking_lot_usecase),
+    _admin: AdminUser = Depends(get_current_admin_user),
+):
+    """指定した駐車場のcurrent_count変更履歴（入出庫・手動調整・リセット）を新しい順に返す。
+    時系列分析・監査用の統合ログ。"""
+    return usecase.list_activities(lot_id, limit=limit)

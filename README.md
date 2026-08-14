@@ -72,9 +72,21 @@ API のみで完結させている。
 保存される。デバイス自身は自分の DB 上の ID を知る必要はなく、API キーだけで
 自分自身の登録済みリソースにアクセスできる。
 
-## Admin認証
+## Admin認証（Google SSO + 許可リスト）
 
-`admin-web` のユーザー認証は アクセストークン（AT）+ リフレッシュトークン（RT）方式。
+管理者アカウントはパスワードを持たない。ログインはGoogle Identity Services（Sign In With
+Google）で取得したIDトークンを `POST /api/v1/auth/google` に送り、サーバーが以下の2段階で
+検証する（`app/google_auth.py`）:
+
+1. **Googleとしての検証**: 署名・audience（`GOOGLE_CLIENT_ID`）・有効期限をGoogleに問い合わせて確認し、
+   `email_verified` なメールアドレスを取り出す。
+2. **実行委員のメール形式検証**: `NN.x.姓.nutfes@gmail.com`（数字2桁.アルファベット1文字.
+   アルファベット文字列.nutfes@gmail.com、例: `25.m.kitano.nutfes@gmail.com`）に一致しない
+   メールアドレスは、Googleとしては正当でもここで拒否する。
+
+検証を通過したメールアドレスが `admin_users`（許可リスト、[管理者アカウントの許可リスト管理](#管理者アカウントの許可リスト管理)参照）に
+存在しなければ401。存在すれば、そこから先は従来どおりアクセストークン（AT）+ リフレッシュ
+トークン（RT）方式でセッションを発行する:
 
 - **AT**: 短命（既定15分）なJWT。`Authorization: Bearer <AT>` で送る。フロントエンド
   （`admin-web`）はメモリ上にのみ保持し、永続化しない。
@@ -84,34 +96,50 @@ API のみで完結させている。
   やり取りする。使用するたびにローテーション（使い捨て）し、ログアウトや期限切れで
   失効する。
 - `POST /api/v1/auth/refresh` はCookieのRTを検証し、新しいATと（ローテーションした）RTを返す。
-  RTが無効/失効していれば401を返す。
+  RTが無効/失効していれば401を返す（Googleへの再検証は発生しない — ATの有効期限が切れる
+  たびに毎回Googleサインインし直す必要はない）。
 
-保護範囲: `POST /parking-lots`、`GET /parking-lots/{id}/events`、`devices` 配下の全エンドポイント
-（一覧・登録・コマンド発行/履歴）が管理者ログインを必須とする。`GET /parking-lots`（一覧・詳細）と
-`GET /health` は Web（公開ビューア）が使うため認証不要のまま。デバイス ↔ API は従来どおり
-`X-API-Key` による別系統の認証。
+保護範囲: `POST /parking-lots`、`POST /parking-lots/{id}/reset`、`GET /parking-lots/{id}/events`、
+`GET /parking-lots/{id}/activities`、`devices` 配下の全エンドポイント（一覧・登録・コマンド発行/履歴）が
+管理者ログインを必須とする。`GET /parking-lots`（一覧・詳細）と `GET /health` は Web（公開ビューア）が
+使うため認証不要のまま。デバイス ↔ API は従来どおり `X-API-Key` による別系統の認証。
 
-クライアント側（AT のメモリ保持、ページロード時のサイレントログイン、401時の自動リトライ）の
-実装は `admin-web` リポジトリの README を参照。
+クライアント側（Google Sign-Inボタン、ATのメモリ保持、ページロード時のサイレントログイン、401時の
+自動リトライ）の実装は `admin-web` リポジトリの README を参照。
 
-### 管理者アカウントの作成
+### 管理者アカウントの許可リスト管理
 
-セルフサインアップの画面は意図的に用意していない（Admin自体は登録済みユーザーだけが
-使えるべきため）。初回のアカウントはCLIから作成する:
+セルフサインアップの画面は意図的に用意していない（Admin自体は許可された人だけが使えるべき
+ため）。許可リストへの追加・削除はCLIから行う:
 
 ```bash
 # ローカル venv から
-PYTHONPATH=. .venv/bin/python scripts/create_admin_user.py <username>
+PYTHONPATH=. .venv/bin/python scripts/manage_admin_allowlist.py add 25.m.kitano.nutfes@gmail.com
+PYTHONPATH=. .venv/bin/python scripts/manage_admin_allowlist.py remove 25.m.kitano.nutfes@gmail.com
 
 # 起動中の docker compose に対して（tracking-parking-center側から）
-docker compose exec api python scripts/create_admin_user.py <username>
+docker compose exec api python scripts/manage_admin_allowlist.py add 25.m.kitano.nutfes@gmail.com
 ```
 
-パスワードは対話プロンプト（`getpass`）で入力する。同じユーザー名で再実行するとパスワードを
-更新できる。
+実行委員の命名規則（`NN.x.姓.nutfes@gmail.com`）に一致しないメールアドレスはこのスクリプト自体が
+拒否する（ログイン時の検証と同じ正規表現、`app/google_auth.py` の `NUTFES_EMAIL_PATTERN`）。
+
+### 一般ユーザー認証（web向け、許可リストなし）
+
+公開ビューア（`web`）の駐車台数手動増減（`POST /parking-lots/{id}/adjust`）は、Admin許可リストとは
+別の軽量な認証を使う（`deps.get_current_general_user_label`）:
+
+- 実行委員のメール形式（上記と同じ正規表現）に一致するGoogleアカウントであれば誰でも利用できる
+  （許可リストによる個別承認は不要）。
+- サーバー側でのセッション発行は行わない（AT/RTを issue しない）。フロントエンドはGoogleの
+  IDトークンをそのまま `Authorization: Bearer <IDトークン>` として毎回のリクエストに載せ、
+  サーバーは毎回Googleに再検証する（ステートレス）。Adminのような長期セッションを持つ必要が
+  ないシンプルな操作のための設計。
 
 ### 本番運用時の注意
 
+- `.env` の `GOOGLE_CLIENT_ID` は実際のGoogle Cloud ConsoleのOAuthクライアントIDに変更する
+  （既定値はプレースホルダーで、これが設定されていないとトークン検証がすべて失敗する）。
 - `.env` の `JWT_SECRET` は必ず固有のランダムな値に変更する（`openssl rand -hex 32`）。
   漏洩すると誰でも有効なアクセストークンを偽造できる。
 - `admin-web` をHTTPS配下で公開する場合は `COOKIE_SECURE=true` にする（HTTP環境ではCookieが
@@ -157,6 +185,20 @@ python3.12 -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/alembic upgrade head
 ```
 
+## 駐車台数のリセット・手動増減・活動ログ
+
+`current_count` を直接変更する手段が3つある。いずれも `parking_activities` に記録され、
+時系列分析や「誰が変更したか」の監査に使える（`GET /parking-lots/{id}/activities`、Admin専用）。
+
+| 操作 | エンドポイント | 認証 | 用途 |
+|---|---|---|---|
+| リセット | `POST /parking-lots/{id}/reset` | Admin | 実車確認とのズレを、指定した台数に直接補正する |
+| 手動増減 | `POST /parking-lots/{id}/adjust` | 一般ユーザー | 1台単位などで台数を増減させる |
+| 入出庫イベント | `POST /events`（デバイス発） | デバイス | 通常の検出フロー（`actor_label`にはdevice_codeが入る） |
+
+リセット・手動増減の `actor_label` には、検証済みGoogleアカウントから抽出したラベル
+（例: `25.m.kitano`）が入る。
+
 ## データモデル
 
 | テーブル | 役割 |
@@ -165,6 +207,9 @@ python3.12 -m venv .venv && .venv/bin/pip install -r requirements.txt
 | `devices` | エッジデバイス。API キーのハッシュ、最終通信時刻、最終ステータスを保持 |
 | `parking_events` | 個々の入出庫イベント（`entry` / `exit`） |
 | `device_commands` | デバイスへのコマンドキュー（`pending` → `delivered` → `completed`/`failed`） |
+| `parking_activities` | `current_count`変更の統合ログ（入出庫・手動増減・リセット、誰が/何が変更したか） |
+| `admin_users` | Admin許可リスト（Googleアカウントのメールアドレスのみ、パスワードなし） |
+| `admin_refresh_tokens` | Adminセッションのリフレッシュトークン |
 
 ER図・カラム定義・状態遷移などの詳細は [`docs/db-schema.md`](docs/db-schema.md) を参照。
 

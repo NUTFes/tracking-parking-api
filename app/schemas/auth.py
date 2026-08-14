@@ -1,9 +1,8 @@
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class LoginIn(BaseModel):
-    username: str = Field(description="管理者ユーザー名")
-    password: str = Field(description="パスワード")
+class GoogleLoginIn(BaseModel):
+    id_token: str = Field(description="Google Identity Services（Sign In With Google）で取得したIDトークン")
 
 
 class TokenOut(BaseModel):
@@ -16,4 +15,4 @@ class UserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    username: str
+    email: str

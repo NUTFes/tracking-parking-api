@@ -1,8 +1,8 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "Trapa Center API",
-    "description": "駐車場入出庫トラッキングシステム「トラパ」のセンターAPI。エッジデバイスからの入出庫イベント登録、ヘルスチェック、デバイスへのコマンド（再起動など）配信をポーリング方式で提供する。",
+    "title": "Tracking-Parking API",
+    "description": "駐車場入出庫トラッキングシステム「Tracking-Parking」のセンターAPI。エッジデバイスからの入出庫イベント登録、ヘルスチェック、デバイスへのコマンド（再起動など）配信をポーリング方式で提供する。",
     "version": "0.1.0"
   },
   "paths": {
@@ -28,19 +28,19 @@
         }
       }
     },
-    "/api/v1/auth/login": {
+    "/api/v1/auth/google": {
       "post": {
         "tags": [
           "auth"
         ],
-        "summary": "管理者ログイン",
-        "description": "ユーザー名とパスワードを検証し、アクセストークンを返す。同時にリフレッシュ\nトークンをHTTP OnlyクッキーとしてセットするAdmin console向けのログイン。",
-        "operationId": "login_api_v1_auth_login_post",
+        "summary": "管理者ログイン（Google SSO）",
+        "description": "GoogleのIDトークンを検証し、そのメールアドレスが管理者許可リストに\n含まれていればアクセストークンを返す。同時にリフレッシュトークンを\nHTTP OnlyクッキーとしてセットするAdmin console向けのログイン。",
+        "operationId": "login_with_google_api_v1_auth_google_post",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/LoginIn"
+                "$ref": "#/components/schemas/GoogleLoginIn"
               }
             }
           },
@@ -128,7 +128,7 @@
         },
         "security": [
           {
-            "HTTPBearer": []
+            "AdminAccessToken": []
           }
         ]
       }
@@ -311,7 +311,7 @@
         },
         "security": [
           {
-            "HTTPBearer": []
+            "AdminAccessToken": []
           }
         ]
       },
@@ -356,7 +356,7 @@
         },
         "security": [
           {
-            "HTTPBearer": []
+            "AdminAccessToken": []
           }
         ]
       }
@@ -371,7 +371,7 @@
         "operationId": "get_device_api_v1_devices__device_id__get",
         "security": [
           {
-            "HTTPBearer": []
+            "AdminAccessToken": []
           }
         ],
         "parameters": [
@@ -417,7 +417,7 @@
         "operationId": "update_device_api_v1_devices__device_id__patch",
         "security": [
           {
-            "HTTPBearer": []
+            "AdminAccessToken": []
           }
         ],
         "parameters": [
@@ -473,7 +473,7 @@
         "operationId": "delete_device_api_v1_devices__device_id__delete",
         "security": [
           {
-            "HTTPBearer": []
+            "AdminAccessToken": []
           }
         ],
         "parameters": [
@@ -514,7 +514,7 @@
         "operationId": "queue_command_api_v1_devices__device_id__commands_post",
         "security": [
           {
-            "HTTPBearer": []
+            "AdminAccessToken": []
           }
         ],
         "parameters": [
@@ -570,7 +570,7 @@
         "operationId": "list_commands_api_v1_devices__device_id__commands_get",
         "security": [
           {
-            "HTTPBearer": []
+            "AdminAccessToken": []
           }
         ],
         "parameters": [
@@ -678,7 +678,7 @@
         },
         "security": [
           {
-            "HTTPBearer": []
+            "AdminAccessToken": []
           }
         ]
       }
@@ -734,7 +734,7 @@
         "operationId": "update_parking_lot_api_v1_parking_lots__lot_id__patch",
         "security": [
           {
-            "HTTPBearer": []
+            "AdminAccessToken": []
           }
         ],
         "parameters": [
@@ -790,7 +790,7 @@
         "operationId": "delete_parking_lot_api_v1_parking_lots__lot_id__delete",
         "security": [
           {
-            "HTTPBearer": []
+            "AdminAccessToken": []
           }
         ],
         "parameters": [
@@ -821,6 +821,122 @@
         }
       }
     },
+    "/api/v1/parking-lots/{lot_id}/reset": {
+      "post": {
+        "tags": [
+          "parking-lots"
+        ],
+        "summary": "駐車台数のリセット",
+        "description": "現在の駐車台数を指定した値に直接設定する。実車確認とのズレを補正するための\nAdmin専用操作で、parking_activitiesに記録される（Adminコンソールからのみ実行可）。",
+        "operationId": "reset_parking_lot_api_v1_parking_lots__lot_id__reset_post",
+        "security": [
+          {
+            "AdminAccessToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "lot_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Lot Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ParkingLotResetIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ParkingLotOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/parking-lots/{lot_id}/adjust": {
+      "post": {
+        "tags": [
+          "parking-lots"
+        ],
+        "summary": "駐車台数の手動増減",
+        "description": "現在の駐車台数を指定した数だけ増減させる（0未満にはならない）。Googleアカウントの\n形式検証のみで利用できる一般ユーザー向けの操作（Adminログインは不要）で、\nparking_activitiesに記録される。",
+        "operationId": "adjust_parking_lot_api_v1_parking_lots__lot_id__adjust_post",
+        "security": [
+          {
+            "GoogleIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "lot_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Lot Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ParkingLotAdjustIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ParkingLotOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/parking-lots/{lot_id}/events": {
       "get": {
         "tags": [
@@ -831,7 +947,7 @@
         "operationId": "list_parking_lot_events_api_v1_parking_lots__lot_id__events_get",
         "security": [
           {
-            "HTTPBearer": []
+            "AdminAccessToken": []
           }
         ],
         "parameters": [
@@ -907,6 +1023,71 @@
                     "$ref": "#/components/schemas/EventOut"
                   },
                   "title": "Response List Parking Lot Events Api V1 Parking Lots  Lot Id  Events Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/parking-lots/{lot_id}/activities": {
+      "get": {
+        "tags": [
+          "parking-lots"
+        ],
+        "summary": "駐車場の活動ログ取得",
+        "description": "指定した駐車場のcurrent_count変更履歴（入出庫・手動調整・リセット）を新しい順に返す。\n時系列分析・監査用の統合ログ。",
+        "operationId": "list_parking_lot_activities_api_v1_parking_lots__lot_id__activities_get",
+        "security": [
+          {
+            "AdminAccessToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "lot_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Lot Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000,
+              "description": "取得件数の上限（最大1000）",
+              "default": 100,
+              "title": "Limit"
+            },
+            "description": "取得件数の上限（最大1000）"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ParkingActivityOut"
+                  },
+                  "title": "Response List Parking Lot Activities Api V1 Parking Lots  Lot Id  Activities Get"
                 }
               }
             }
@@ -1351,6 +1532,20 @@
         ],
         "title": "EventOut"
       },
+      "GoogleLoginIn": {
+        "properties": {
+          "id_token": {
+            "type": "string",
+            "title": "Id Token",
+            "description": "Google Identity Services（Sign In With Google）で取得したIDトークン"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id_token"
+        ],
+        "title": "GoogleLoginIn"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -1427,25 +1622,92 @@
         ],
         "title": "HeartbeatOut"
       },
-      "LoginIn": {
+      "ParkingActivityOut": {
         "properties": {
-          "username": {
-            "type": "string",
-            "title": "Username",
-            "description": "管理者ユーザー名"
+          "id": {
+            "type": "integer",
+            "title": "Id"
           },
-          "password": {
+          "parking_lot_id": {
+            "type": "integer",
+            "title": "Parking Lot Id"
+          },
+          "activity_type": {
             "type": "string",
-            "title": "Password",
-            "description": "パスワード"
+            "title": "Activity Type",
+            "description": "entry / exit / manual_adjustment / reset"
+          },
+          "delta": {
+            "type": "integer",
+            "title": "Delta",
+            "description": "この活動によるcurrent_countの増減"
+          },
+          "count_after": {
+            "type": "integer",
+            "title": "Count After",
+            "description": "この活動が反映された後のcurrent_count"
+          },
+          "actor_label": {
+            "type": "string",
+            "title": "Actor Label",
+            "description": "発生元。デバイス起因ならdevice_code、人起因ならGoogleアカウントの識別ラベル（例: 25.m.kitano）"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note",
+            "description": "手動調整・リセット時の理由メモ（任意）"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
           }
         },
         "type": "object",
         "required": [
-          "username",
-          "password"
+          "id",
+          "parking_lot_id",
+          "activity_type",
+          "delta",
+          "count_after",
+          "actor_label",
+          "note",
+          "created_at"
         ],
-        "title": "LoginIn"
+        "title": "ParkingActivityOut"
+      },
+      "ParkingLotAdjustIn": {
+        "properties": {
+          "delta": {
+            "type": "integer",
+            "title": "Delta",
+            "description": "増減させる台数（正の値で増加、負の値で減少）"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note",
+            "description": "調整理由（任意）"
+          }
+        },
+        "type": "object",
+        "required": [
+          "delta"
+        ],
+        "title": "ParkingLotAdjustIn"
       },
       "ParkingLotCreate": {
         "properties": {
@@ -1501,6 +1763,33 @@
           "created_at"
         ],
         "title": "ParkingLotOut"
+      },
+      "ParkingLotResetIn": {
+        "properties": {
+          "count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Count",
+            "description": "リセット後の駐車台数"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note",
+            "description": "リセット理由（任意）"
+          }
+        },
+        "type": "object",
+        "required": [
+          "count"
+        ],
+        "title": "ParkingLotResetIn"
       },
       "ParkingLotUpdate": {
         "properties": {
@@ -1563,15 +1852,15 @@
             "type": "integer",
             "title": "Id"
           },
-          "username": {
+          "email": {
             "type": "string",
-            "title": "Username"
+            "title": "Email"
           }
         },
         "type": "object",
         "required": [
           "id",
-          "username"
+          "email"
         ],
         "title": "UserOut"
       },
@@ -1610,9 +1899,9 @@
       }
     },
     "securitySchemes": {
-      "HTTPBearer": {
+      "AdminAccessToken": {
         "type": "http",
-        "description": "Admin console access token (from /auth/login)",
+        "description": "Admin console access token (from /auth/google)",
         "scheme": "bearer"
       },
       "APIKeyHeader": {
@@ -1620,6 +1909,11 @@
         "description": "Edge device API key",
         "in": "header",
         "name": "X-API-Key"
+      },
+      "GoogleIdToken": {
+        "type": "http",
+        "description": "Google ID token (Sign In With Google)",
+        "scheme": "bearer"
       }
     }
   },
