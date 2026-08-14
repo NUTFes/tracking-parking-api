@@ -11,6 +11,7 @@ erDiagram
     PARKING_LOTS ||--o{ DEVICES : "1つの駐車場に複数のデバイス"
     DEVICES ||--o{ PARKING_EVENTS : "1台のデバイスが複数のイベントを検出"
     DEVICES ||--o{ DEVICE_COMMANDS : "1台のデバイスに複数のコマンド"
+    ADMIN_USERS ||--o{ ADMIN_REFRESH_TOKENS : "1ユーザーが複数のリフレッシュトークンを保持"
 
     PARKING_LOTS {
         int id PK
@@ -47,6 +48,20 @@ erDiagram
         datetime created_at
         datetime delivered_at "nullable"
         datetime completed_at "nullable"
+    }
+    ADMIN_USERS {
+        int id PK
+        string username UK
+        string password_hash "bcrypt"
+        datetime created_at
+    }
+    ADMIN_REFRESH_TOKENS {
+        int id PK
+        int user_id FK
+        string token_hash UK "SHA-256, 64桁"
+        datetime created_at
+        datetime expires_at
+        datetime revoked_at "nullable"
     }
 ```
 
@@ -120,6 +135,31 @@ erDiagram
 ```
 pending --(デバイスが /heartbeat を呼ぶ)--> delivered --(デバイスが /commands/{id}/ack を呼ぶ)--> completed | failed
 ```
+
+### `admin_users` — 管理者アカウント
+
+| カラム | 型 | 制約 | 説明 |
+|---|---|---|---|
+| `id` | INT | PK, AUTO_INCREMENT | |
+| `username` | VARCHAR(64) | UNIQUE, NOT NULL | ログインID |
+| `password_hash` | VARCHAR(255) | NOT NULL | bcryptハッシュ |
+| `created_at` | DATETIME | NOT NULL | 作成日時 |
+
+セルフサインアップはなく、`scripts/create_admin_user.py` でCLIから作成する（[本README](../README.md#管理者アカウントの作成)参照）。
+
+### `admin_refresh_tokens` — リフレッシュトークン
+
+| カラム | 型 | 制約 | 説明 |
+|---|---|---|---|
+| `id` | INT | PK, AUTO_INCREMENT | |
+| `user_id` | INT | FK → `admin_users.id`, NOT NULL, INDEX | 発行先ユーザー |
+| `token_hash` | VARCHAR(64) | UNIQUE, NOT NULL, INDEX | リフレッシュトークンのSHA-256ハッシュ。平文はCookieでのみやり取りし、DBには保存しない |
+| `created_at` | DATETIME | NOT NULL | 発行日時 |
+| `expires_at` | DATETIME | NOT NULL | 有効期限（既定14日、`REFRESH_TOKEN_EXPIRE_DAYS`） |
+| `revoked_at` | DATETIME | NULL可 | ローテーション（再利用）またはログアウトで失効した日時 |
+
+`POST /api/v1/auth/refresh` を呼ぶたびに使用中のトークンを失効させ、新しいトークンを発行する
+（使い捨てローテーション）。詳細は[本README](../README.md#admin認証)を参照。
 
 ## 共通事項
 
