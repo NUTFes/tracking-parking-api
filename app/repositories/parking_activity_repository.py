@@ -36,3 +36,6 @@ class ParkingActivityRepository:
             .limit(limit)
             .all()
         )
+
+    def list_recent(self, *, limit: int) -> list[ParkingActivity]:
+        return self.db.query(ParkingActivity).order_by(ParkingActivity.created_at.desc()).limit(limit).all()

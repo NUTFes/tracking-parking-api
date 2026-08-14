@@ -145,6 +145,26 @@ def test_activities_requires_admin(client, admin_headers):
     assert response.status_code == 401
 
 
+def test_list_all_activities_requires_admin(client, admin_headers):
+    _register_lot(client, admin_headers)
+    response = client.get("/api/v1/parking-lots/activities")
+    assert response.status_code == 401
+
+
+def test_list_all_activities_spans_every_lot_newest_first(client, admin_headers):
+    lot1 = _register_lot(client, admin_headers)
+    lot2 = client.post(
+        "/api/v1/parking-lots", json={"name": "Test Lot 2", "capacity": 20}, headers=admin_headers
+    ).json()
+    client.post(f"/api/v1/parking-lots/{lot1['id']}/reset", json={"count": 3}, headers=admin_headers)
+    client.post(f"/api/v1/parking-lots/{lot2['id']}/reset", json={"count": 9}, headers=admin_headers)
+
+    activities = client.get("/api/v1/parking-lots/activities", headers=admin_headers).json()
+    assert len(activities) == 2
+    assert activities[0]["parking_lot_id"] == lot2["id"]
+    assert activities[1]["parking_lot_id"] == lot1["id"]
+
+
 def test_device_event_appears_in_activities_with_device_code_as_actor(client, admin_headers):
     lot = _register_lot(client, admin_headers)
     device = client.post(

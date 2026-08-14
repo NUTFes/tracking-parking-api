@@ -36,6 +36,19 @@ def list_parking_lots(usecase: ParkingLotUsecase = Depends(get_parking_lot_useca
     return usecase.list_parking_lots()
 
 
+@router.get("/activities", response_model=list[ParkingActivityOut], summary="全駐車場の活動ログ取得")
+def list_all_parking_lot_activities(
+    limit: int = Query(default=200, le=1000, description="取得件数の上限（最大1000）"),
+    usecase: ParkingLotUsecase = Depends(get_parking_lot_usecase),
+    _admin: AdminUser = Depends(get_current_admin_user),
+):
+    """全駐車場の活動ログ（入出庫・手動調整・リセット）を、駐車場を問わず新しい順にまとめて
+    返す。Adminコンソールの一覧表示用。この静的パスは /{lot_id} より前に定義する必要がある
+    （FastAPIはパスパラメータの型に関わらず登録順でマッチするため、後ろだと
+    /{lot_id} 側が "activities" を lot_id として解釈しようとして422になる）。"""
+    return usecase.list_all_activities(limit=limit)
+
+
 @router.get("/{lot_id}", response_model=ParkingLotOut, summary="駐車場詳細取得")
 def get_parking_lot(lot_id: int, usecase: ParkingLotUsecase = Depends(get_parking_lot_usecase)):
     """指定した駐車場の詳細（現在の駐車台数を含む）を返す。"""

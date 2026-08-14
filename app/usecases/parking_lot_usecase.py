@@ -141,6 +141,9 @@ class ParkingLotUsecase:
         self.get_parking_lot(lot_id)  # raises NotFoundError if the lot doesn't exist
         return self.activities.list_for_lot(lot_id, limit=limit)
 
+    def list_all_activities(self, *, limit: int) -> list[ParkingActivity]:
+        return self.activities.list_recent(limit=limit)
+
 
 def get_parking_lot_usecase(db: Session = Depends(get_db)) -> ParkingLotUsecase:
     return ParkingLotUsecase(db)
