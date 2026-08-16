@@ -8,6 +8,17 @@ class Settings(BaseSettings):
     device_offline_threshold_seconds: int = 120
     cors_origins: str = "http://localhost:5173,http://localhost:5174"
 
+    # SQLAlchemy connection pool. Previously left at the library's defaults
+    # (pool_size=5, max_overflow=10 => 15 connections max) with no explicit
+    # config — services/load-test surfaced this as the likely ceiling behind
+    # an intermittent connection reset under ~30 req/s of concurrent traffic
+    # (single uvicorn worker, so this pool is the only place backpressure can
+    # build up). Doubled here and made tunable via env vars without a code
+    # change; pool_timeout kept at SQLAlchemy's own default (30s).
+    db_pool_size: int = 10
+    db_max_overflow: int = 20
+    db_pool_timeout: int = 30
+
     # Google Sign-In (Identity Services). Both admin-web (with an allow-list,
     # see admin_users) and web (any correctly-formatted NUTFes account, see
     # app/google_auth.py) verify ID tokens against this OAuth client ID.
