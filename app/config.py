@@ -24,6 +24,14 @@ class Settings(BaseSettings):
     # app/google_auth.py) verify ID tokens against this OAuth client ID.
     google_client_id: str = "your-client-id.apps.googleusercontent.com"
 
+    # DANGER — never set true outside the E2E docker-compose overlay
+    # (services/e2e/docker-compose.e2e.yml). When true, app.google_auth
+    # skips real signature verification against Google and just decodes the
+    # token payload as-is, so Playwright can sign in with a self-crafted
+    # token (real Google auth can't be scripted end-to-end). Not present in
+    # .env.example / the default docker-compose.yml on purpose.
+    google_auth_test_mode: bool = False
+
     # Admin authentication (services/admin-web). Access tokens are short-lived JWTs
     # kept in memory by the frontend; refresh tokens are opaque, DB-backed, and
     # delivered only via an HttpOnly cookie.
