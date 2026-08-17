@@ -1,10 +1,15 @@
+import logging
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.config import settings
 from app.exceptions import ConflictError, NotFoundError, UnauthorizedError
 from app.routers import admin_users, auth, devices, events, health, heartbeat, parking_lots
+
+logger = logging.getLogger("app")
 
 OPENAPI_TAGS = [
     {"name": "health", "description": "サーバーおよびDB接続の稼働確認"},
@@ -46,6 +51,34 @@ async def handle_conflict(request: Request, exc: ConflictError) -> JSONResponse:
     return JSONResponse(status_code=409, content={"detail": exc.message})
 
 
+class UnhandledExceptionMiddleware(BaseHTTPMiddleware):
+    """Last-resort catch for anything that isn't one of our DomainError
+    subclasses above (e.g. a raw DB error) — logs it and returns a plain
+    JSON 500 instead of letting it propagate as a truly unhandled exception.
+
+    This matters for more than nice error messages: Starlette's default
+    handling of a *truly* unhandled exception runs in ServerErrorMiddleware,
+    which sits OUTSIDE CORSMiddleware in the stack — so that response never
+    gets CORS headers, and a browser reports it as an opaque "Failed to
+    fetch" instead of a readable error (this is exactly what happened when
+    deleting an admin_user hit an unhandled IntegrityError). Catching the
+    exception here, as ordinary middleware, keeps the response inside
+    CORSMiddleware's reach — but only because this is registered *before*
+    CORSMiddleware below (Starlette's add_middleware prepends, so the
+    middleware added last ends up outermost; CORSMiddleware must stay
+    outermost to still see this one's response)."""
+
+    async def dispatch(self, request: Request, call_next):
+        try:
+            return await call_next(request)
+        except Exception:
+            logger.exception("Unhandled exception: %s %s", request.method, request.url.path)
+            return JSONResponse(status_code=500, content={"detail": "予期しないエラーが発生しました"})
+
+
+# Order matters: added before CORSMiddleware so CORSMiddleware ends up
+# outermost and can still attach headers to the 500 responses this produces.
+app.add_middleware(UnhandledExceptionMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
