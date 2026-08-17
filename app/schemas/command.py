@@ -1,7 +1,8 @@
-from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from app.schemas.common import JSTDateTime
 
 
 class CommandCreate(BaseModel):
@@ -25,9 +26,9 @@ class CommandOut(BaseModel):
     status: str = Field(description="コマンドの状態（pending=未配信 / delivered=配信済み / completed=完了 / failed=失敗）")
     requested_by: str | None
     result_message: str | None
-    created_at: datetime = Field(description="コマンドがキューに登録された日時")
-    delivered_at: datetime | None = Field(description="デバイスがハートビートで受け取った日時")
-    completed_at: datetime | None = Field(description="デバイスが実行結果を報告した日時")
+    created_at: JSTDateTime = Field(description="コマンドがキューに登録された日時")
+    delivered_at: JSTDateTime | None = Field(description="デバイスがハートビートで受け取った日時")
+    completed_at: JSTDateTime | None = Field(description="デバイスが実行結果を報告した日時")
 
 
 class HeartbeatIn(BaseModel):
@@ -35,5 +36,5 @@ class HeartbeatIn(BaseModel):
 
 
 class HeartbeatOut(BaseModel):
-    server_time: datetime = Field(description="サーバー側の受信日時")
+    server_time: JSTDateTime = Field(description="サーバー側の受信日時")
     commands: list[CommandOut] = Field(description="このハートビートで配信された、実行待ちのコマンド一覧")

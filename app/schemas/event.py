@@ -3,6 +3,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.schemas.common import JSTDateTime
+
 
 class EventCreate(BaseModel):
     event_type: Literal["entry", "exit"] = Field(description="イベント種別（entry=入庫 / exit=出庫）")
@@ -19,5 +21,5 @@ class EventOut(BaseModel):
     device_id: int = Field(description="このイベントを登録したデバイスのID")
     event_type: str = Field(description="イベント種別（entry=入庫 / exit=出庫）")
     vehicle_track_id: str | None
-    detected_at: datetime = Field(description="エッジデバイスが検出した日時")
-    received_at: datetime = Field(description="サーバーがイベントを受信した日時")
+    detected_at: JSTDateTime = Field(description="エッジデバイスが検出した日時")
+    received_at: JSTDateTime = Field(description="サーバーがイベントを受信した日時")

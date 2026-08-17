@@ -1,17 +1,18 @@
-from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.schemas.common import JSTDateTime
+
 
 class ParkingLotCreate(BaseModel):
     name: str = Field(description="駐車場名")
-    capacity: int = Field(description="収容台数")
+    capacity: int = Field(ge=0, description="収容台数")
 
 
 class ParkingLotUpdate(BaseModel):
     name: str | None = Field(default=None, description="駐車場名")
-    capacity: int | None = Field(default=None, description="収容台数")
+    capacity: int | None = Field(default=None, ge=0, description="収容台数")
 
 
 class ParkingLotResetIn(BaseModel):
@@ -41,4 +42,4 @@ class ParkingLotOut(BaseModel):
     current_count: int = Field(description="現在の駐車台数（人力カウント）。手動増減・リセットでのみ変化する")
     system_count: int = Field(description="デバイスが検出した入出庫イベントの集計値。current_countとは独立")
     has_device: bool = Field(description="このparking_lotに紐づくデバイスが1台以上あるか")
-    created_at: datetime
+    created_at: JSTDateTime

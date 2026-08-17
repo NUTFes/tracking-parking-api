@@ -1,6 +1,6 @@
-from datetime import datetime
-
 from pydantic import BaseModel, ConfigDict, Field
+
+from app.schemas.common import JSTDateTime
 
 
 class ParkingActivityOut(BaseModel):
@@ -15,4 +15,4 @@ class ParkingActivityOut(BaseModel):
         description="発生元。デバイス起因ならdevice_code、人起因ならGoogleアカウントの識別ラベル（例: 25.m.kitano）"
     )
     note: str | None = Field(description="手動調整・リセット時の理由メモ（任意）")
-    created_at: datetime
+    created_at: JSTDateTime
