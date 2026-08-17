@@ -11,6 +11,7 @@ def _register_lot_and_device(client, admin_headers, device_code="dev-1"):
 
 
 def test_heartbeat_updates_device_status_and_online_flag(client, admin_headers):
+    """ハートビート送信でデバイスの状態（last_status）が更新され、オンライン判定がtrueになることを確認する"""
     _lot, device = _register_lot_and_device(client, admin_headers)
     headers = {"X-API-Key": device["api_key"]}
 
@@ -24,12 +25,14 @@ def test_heartbeat_updates_device_status_and_online_flag(client, admin_headers):
 
 
 def test_device_is_offline_without_heartbeat(client, admin_headers):
+    """一度もハートビートを送っていないデバイスはオフライン扱いになることを確認する"""
     _lot, device = _register_lot_and_device(client, admin_headers)
     listed = client.get(f"/api/v1/devices/{device['id']}", headers=admin_headers).json()
     assert listed["online"] is False
 
 
 def test_device_endpoints_require_admin_auth(client, admin_headers):
+    """デバイスの詳細取得・一覧取得・コマンド発行はいずれも管理者認証が必須であることを確認する"""
     _lot, device = _register_lot_and_device(client, admin_headers)
     assert client.get(f"/api/v1/devices/{device['id']}").status_code == 401
     assert client.get("/api/v1/devices").status_code == 401
@@ -40,6 +43,8 @@ def test_device_endpoints_require_admin_auth(client, admin_headers):
 
 
 def test_restart_command_is_delivered_via_heartbeat_and_acked(client, admin_headers):
+    """キューに積んだ再起動コマンドが次のハートビートで配信され、一度配信済みのコマンドは
+    再配信されず、ack後にステータスが完了になることを確認する"""
     _lot, device = _register_lot_and_device(client, admin_headers)
     headers = {"X-API-Key": device["api_key"]}
 
@@ -75,6 +80,7 @@ def test_restart_command_is_delivered_via_heartbeat_and_acked(client, admin_head
 
 
 def test_start_and_stop_counting_commands_are_queueable(client, admin_headers):
+    """集計開始・集計停止コマンドもキューに積んで、ハートビートで配信できることを確認する"""
     _lot, device = _register_lot_and_device(client, admin_headers)
     headers = {"X-API-Key": device["api_key"]}
 
@@ -93,6 +99,7 @@ def test_start_and_stop_counting_commands_are_queueable(client, admin_headers):
 
 
 def test_cannot_ack_another_devices_command(client, admin_headers):
+    """自分宛てではない（別デバイス宛ての）コマンドIDをackしようとすると404になることを確認する"""
     _lot, device_a = _register_lot_and_device(client, admin_headers, "dev-a")
     _lot2, device_b = _register_lot_and_device(client, admin_headers, "dev-b")
 
