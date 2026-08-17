@@ -4,7 +4,7 @@ from fastapi.responses import JSONResponse
 
 from app.config import settings
 from app.exceptions import ConflictError, NotFoundError, UnauthorizedError
-from app.routers import auth, devices, events, health, heartbeat, parking_lots
+from app.routers import admin_users, auth, devices, events, health, heartbeat, parking_lots
 
 OPENAPI_TAGS = [
     {"name": "health", "description": "サーバーおよびDB接続の稼働確認"},
@@ -16,6 +16,7 @@ OPENAPI_TAGS = [
     {"name": "devices", "description": "デバイスの管理（登録・一覧・再起動などのコマンド発行、要管理者ログイン）"},
     {"name": "parking-lots", "description": "駐車場の現在の駐車状況と入出庫履歴"},
     {"name": "auth", "description": "管理コンソール（Admin）のログイン・トークン管理"},
+    {"name": "admin-users", "description": "管理コンソールへのログインを許可するアカウント（許可リスト）の管理"},
 ]
 
 app = FastAPI(
@@ -59,3 +60,4 @@ app.include_router(events.router, prefix="/api/v1")
 app.include_router(heartbeat.router, prefix="/api/v1")
 app.include_router(devices.router, prefix="/api/v1")
 app.include_router(parking_lots.router, prefix="/api/v1")
+app.include_router(admin_users.router, prefix="/api/v1")
