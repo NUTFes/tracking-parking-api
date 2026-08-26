@@ -23,6 +23,8 @@ class DeviceUsecase:
     def register_device(self, *, device_code: str, name: str | None, parking_lot_id: int) -> tuple[Device, str]:
         """Returns (device, plaintext_api_key) — the plaintext key exists only
         for this one call; only its hash is ever persisted."""
+        if self.parking_lots.get(parking_lot_id) is None:
+            raise NotFoundError("parking lot not found")
         api_key = generate_secret_token()
         device = self.devices.create(
             device_code=device_code,

@@ -158,6 +158,15 @@ def test_update_device_rejects_unknown_parking_lot(client, admin_headers):
     assert response.status_code == 404
 
 
+def test_create_device_rejects_unknown_parking_lot(client, admin_headers):
+    """存在しない駐車場IDでデバイスを新規登録しようとすると404になることを確認する
+    （DBのFK制約に任せた500ではなく、他のエンドポイントと同じ404で明示的に弾く）"""
+    response = client.post(
+        "/api/v1/devices", json={"device_code": "dev-orphan", "parking_lot_id": 999999}, headers=admin_headers
+    )
+    assert response.status_code == 404
+
+
 def test_delete_device_cascades_events_and_commands(client, admin_headers):
     """デバイスを削除すると、そのイベント履歴も連動して削除される一方、駐車場自体は
     残ることを確認する"""
