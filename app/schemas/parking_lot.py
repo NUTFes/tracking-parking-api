@@ -13,6 +13,8 @@ class ParkingLotCreate(BaseModel):
 class ParkingLotUpdate(BaseModel):
     name: str | None = Field(default=None, description="駐車場名")
     capacity: int | None = Field(default=None, ge=0, description="収容台数")
+    x_percent: float | None = Field(default=None, ge=0, le=100, description="マップ画像上のピン位置（横%）")
+    y_percent: float | None = Field(default=None, ge=0, le=100, description="マップ画像上のピン位置（縦%）")
 
 
 class ParkingLotResetIn(BaseModel):
@@ -42,4 +44,6 @@ class ParkingLotOut(BaseModel):
     current_count: int = Field(description="現在の駐車台数（人力カウント）。手動増減・リセットでのみ変化する")
     system_count: int = Field(description="デバイスが検出した入出庫イベントの集計値。current_countとは独立")
     has_device: bool = Field(description="このparking_lotに紐づくデバイスが1台以上あるか")
+    x_percent: float | None = Field(description="マップ画像上のピン位置（横%）。未設定ならマップに表示しない")
+    y_percent: float | None = Field(description="マップ画像上のピン位置（縦%）。未設定ならマップに表示しない")
     created_at: JSTDateTime

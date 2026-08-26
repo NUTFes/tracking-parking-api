@@ -20,6 +20,8 @@ erDiagram
         int capacity
         int current_count "既定値 0、人力カウント専用"
         int system_count "既定値 0、デバイスの入出庫イベント専用"
+        float x_percent "nullable, 既定値 50.0, マップ上のピン位置(横%)"
+        float y_percent "nullable, 既定値 50.0, マップ上のピン位置(縦%)"
         datetime created_at
     }
     DEVICES {
@@ -87,6 +89,8 @@ erDiagram
 | `capacity` | INT | NOT NULL | 収容台数 |
 | `current_count` | INT | NOT NULL, 既定値0 | **人力カウント専用**。`manager`の手動増減・Adminのリセットでのみ増減し、非負に固定される。容量比較・満車判定など「公式」な値として使われる |
 | `system_count` | INT | NOT NULL, 既定値0 | **デバイスの入出庫イベント専用**。`parking_events` 登録時に増減し、非負に固定される。`current_count`とは独立に管理され、互いに上書きしない |
+| `x_percent` | FLOAT | NULL可, 既定値50.0 | キャンパスマップ画像上のピン位置（横%、0〜100）。`admin-web`のマップエディタからのみ書き込む。未設定（NULL）の駐車場は`web`/`manager`/`admin-web`いずれのマップにもピンを表示しない |
+| `y_percent` | FLOAT | NULL可, 既定値50.0 | 同上（縦%） |
 | `created_at` | DATETIME | NOT NULL | 登録日時 |
 
 `current_count`と`system_count`を分けているのは、カメラ等のデバイス検出は取りこぼし・誤検出が

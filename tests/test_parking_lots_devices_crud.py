@@ -1,3 +1,6 @@
+import pytest
+
+
 def _register_lot_and_device(client, admin_headers, device_code="dev-1"):
     lot = client.post(
         "/api/v1/parking-lots", json={"name": "Test Lot", "capacity": 10}, headers=admin_headers
@@ -23,6 +26,38 @@ def test_list_parking_lots_returns_all_registered_lots(client, admin_headers):
     assert response.status_code == 200
     ids = [item["id"] for item in response.json()]
     assert lot["id"] in ids
+
+
+def test_create_parking_lot_defaults_to_centered_map_position(client, admin_headers):
+    """マップ上の位置を指定せずに駐車場を登録すると、x_percent/y_percentが
+    中央（50.0）になることを確認する（admin-webでピンをドラッグする前の初期表示用）"""
+    lot = client.post("/api/v1/parking-lots", json={"name": "New Lot", "capacity": 10}, headers=admin_headers).json()
+    assert lot["x_percent"] == 50.0
+    assert lot["y_percent"] == 50.0
+
+
+def test_update_parking_lot_map_position(client, admin_headers):
+    """x_percent/y_percentを更新すると、駐車場名・収容台数は変更されずマップ上の位置だけが
+    更新されることを確認する（ピンのドラッグ操作で使うパス）"""
+    lot, _device = _register_lot_and_device(client, admin_headers)
+    response = client.patch(
+        f"/api/v1/parking-lots/{lot['id']}", json={"x_percent": 12.5, "y_percent": 87.3}, headers=admin_headers
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["x_percent"] == 12.5
+    assert body["y_percent"] == 87.3
+    assert body["name"] == lot["name"]
+    assert body["capacity"] == lot["capacity"]
+
+
+@pytest.mark.parametrize("field", ["x_percent", "y_percent"])
+@pytest.mark.parametrize("value", [-0.1, 100.1])
+def test_update_parking_lot_rejects_out_of_range_map_position(client, admin_headers, field, value):
+    """x_percent/y_percentが0〜100の範囲外だと422になることを確認する"""
+    lot, _device = _register_lot_and_device(client, admin_headers)
+    response = client.patch(f"/api/v1/parking-lots/{lot['id']}", json={field: value}, headers=admin_headers)
+    assert response.status_code == 422
 
 
 def test_update_parking_lot(client, admin_headers):

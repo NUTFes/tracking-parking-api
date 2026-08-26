@@ -62,8 +62,14 @@ def update_parking_lot(
     usecase: ParkingLotUsecase = Depends(get_parking_lot_usecase),
     _admin: AdminUser = Depends(get_current_admin_user),
 ):
-    """駐車場名・収容台数を更新する。指定したフィールドのみ更新される。"""
-    return usecase.update_parking_lot(lot_id, name=payload.name, capacity=payload.capacity)
+    """駐車場名・収容台数・マップ上のピン位置を更新する。指定したフィールドのみ更新される。"""
+    return usecase.update_parking_lot(
+        lot_id,
+        name=payload.name,
+        capacity=payload.capacity,
+        x_percent=payload.x_percent,
+        y_percent=payload.y_percent,
+    )
 
 
 @router.delete("/{lot_id}", status_code=status.HTTP_204_NO_CONTENT, summary="駐車場削除")

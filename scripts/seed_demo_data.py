@@ -1,5 +1,5 @@
-"""Seeds the canonical demo dataset: 7 named parking lots matching the
-campus map pins (services/web/src/campusMapPins.ts) and 1 device on 講義棟北2.
+"""Seeds the canonical demo dataset: 7 named parking lots placed at their
+real campus-map pin positions (x_percent/y_percent) and 1 device on 講義棟北2.
 
 Destructive: deletes ALL existing parking lots and devices first (which
 cascades their events/commands/activities) so the DB always ends up in
@@ -16,13 +16,13 @@ from app.security import generate_secret_token, hash_token
 # Capacities are placeholders — edit via admin-web once the real per-lot
 # capacity is known.
 PARKING_LOTS = [
-    {"name": "イチョウ通り", "capacity": 35},
-    {"name": "RIセンター北", "capacity": 15},
-    {"name": "講義棟西2", "capacity": 20},
-    {"name": "講義棟西1", "capacity": 25},
-    {"name": "講義棟北2", "capacity": 30},
-    {"name": "体育館下", "capacity": 40},
-    {"name": "地域防災実践研究センター下", "capacity": 20},
+    {"name": "イチョウ通り", "capacity": 35, "x_percent": 4.8, "y_percent": 35.5},
+    {"name": "RIセンター北", "capacity": 15, "x_percent": 63.8, "y_percent": 21.4},
+    {"name": "講義棟西2", "capacity": 20, "x_percent": 72.5, "y_percent": 23.9},
+    {"name": "講義棟西1", "capacity": 25, "x_percent": 70.0, "y_percent": 34.6},
+    {"name": "講義棟北2", "capacity": 30, "x_percent": 90.8, "y_percent": 41.6},
+    {"name": "体育館下", "capacity": 40, "x_percent": 29.5, "y_percent": 81.2},
+    {"name": "地域防災実践研究センター下", "capacity": 20, "x_percent": 11.3, "y_percent": 85.3},
 ]
 
 DEVICE = {"device_code": "kougitou-hoku2-01", "parking_lot_name": "講義棟北2"}
@@ -43,7 +43,12 @@ def main() -> None:
 
         name_to_lot_id = {}
         for spec in PARKING_LOTS:
-            lot = parking_lots.create(name=spec["name"], capacity=spec["capacity"])
+            lot = parking_lots.create(
+                name=spec["name"],
+                capacity=spec["capacity"],
+                x_percent=spec["x_percent"],
+                y_percent=spec["y_percent"],
+            )
             db.flush()  # populate lot.id
             name_to_lot_id[spec["name"]] = lot.id
 

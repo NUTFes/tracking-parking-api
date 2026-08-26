@@ -38,9 +38,17 @@ class ParkingLotUsecase:
             raise NotFoundError("parking lot not found")
         return lot
 
-    def update_parking_lot(self, lot_id: int, *, name: str | None, capacity: int | None) -> ParkingLot:
+    def update_parking_lot(
+        self,
+        lot_id: int,
+        *,
+        name: str | None,
+        capacity: int | None,
+        x_percent: float | None = None,
+        y_percent: float | None = None,
+    ) -> ParkingLot:
         lot = self.get_parking_lot(lot_id)
-        self.parking_lots.update(lot, name=name, capacity=capacity)
+        self.parking_lots.update(lot, name=name, capacity=capacity, x_percent=x_percent, y_percent=y_percent)
         self.db.commit()
         self.db.refresh(lot)
         return lot

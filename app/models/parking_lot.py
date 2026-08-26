@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, Integer, String
+from sqlalchemy import DateTime, Float, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -22,6 +22,13 @@ class ParkingLot(Base):
     # recorded. Purely informational (shown alongside current_count for
     # comparison on the manager screen) — never drives capacity/"満車" logic.
     system_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Pin position on the campus map image, as a percentage of its
+    # width/height (0-100) — see services/admin-web's CampusMapEditor, which
+    # is the only thing that ever writes these. Defaults to dead-center so a
+    # newly created lot gets a pin immediately, ready to be dragged into
+    # place, instead of starting invisible.
+    x_percent: Mapped[float | None] = mapped_column(Float, nullable=True, default=50.0)
+    y_percent: Mapped[float | None] = mapped_column(Float, nullable=True, default=50.0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now_local, nullable=False)
 
     devices: Mapped[list["Device"]] = relationship(back_populates="parking_lot")
