@@ -1,3 +1,5 @@
+import uuid
+
 from tests.conftest import fake_google_id_token
 
 GENERAL_USER_EMAIL = "24.k.tanaka.nutfes@gmail.com"
@@ -234,7 +236,7 @@ def test_device_event_appears_in_activities_with_device_code_as_actor(client, ad
 
     client.post(
         "/api/v1/events",
-        json={"event_type": "entry", "detected_at": "2026-08-15T10:00:00"},
+        json={"request_id": str(uuid.uuid4()), "event_type": "entry", "detected_at": "2026-08-15T10:00:00"},
         headers={"X-API-Key": device["api_key"]},
     )
 
@@ -263,7 +265,7 @@ def test_system_count_and_current_count_are_independent(client, admin_headers):
     # A device event only moves system_count.
     client.post(
         "/api/v1/events",
-        json={"event_type": "entry", "detected_at": "2026-08-15T10:00:00"},
+        json={"request_id": str(uuid.uuid4()), "event_type": "entry", "detected_at": "2026-08-15T10:00:00"},
         headers={"X-API-Key": device["api_key"]},
     )
     after_event = client.get(f"/api/v1/parking-lots/{lot['id']}").json()

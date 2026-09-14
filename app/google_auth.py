@@ -16,10 +16,12 @@ from google.oauth2 import id_token as google_id_token
 from app.config import settings
 from app.exceptions import UnauthorizedError
 
-# e.g. "25.m.kitano.nutfes@gmail.com" -> label "25.m.kitano" (2-digit class
-# year, 1-letter given-name initial, surname). This is the NUTFes executive
-# committee's Google Workspace naming convention.
-NUTFES_EMAIL_PATTERN = re.compile(r"^(?P<label>\d{2}\.[a-zA-Z]\.[a-zA-Z]+)\.nutfes@gmail\.com$")
+# e.g. "25.m.kitano.nutfes@gmail.com" or "25.tm.sato.nutfes@gmail.com" ->
+# label "25.m.kitano" / "25.tm.sato" (2-digit class year, given-name
+# initial(s), surname — the initial segment can be one or more letters).
+# This is the NUTFes executive committee's Google Workspace naming
+# convention.
+NUTFES_EMAIL_PATTERN = re.compile(r"^(?P<label>\d{2}\.[a-zA-Z]+\.[a-zA-Z]+)\.nutfes@gmail\.com$")
 
 _google_request = google_requests.Request()
 

@@ -138,8 +138,8 @@
         "tags": [
           "events"
         ],
-        "summary": "入出庫イベント登録",
-        "description": "認証済みデバイスの入出庫イベントを記録し、同一トランザクション内で\n駐車場の現在台数（current_count）を更新する。",
+        "summary": "入出庫イベント登録（非同期処理）",
+        "description": "認証済みデバイスの入出庫イベントを記録する。イベント自体はこのリクエスト内で\n即座に永続化される（レスポンスの`status`は\"pending\"）が、駐車場の現在台数\n（system_count）への反映はバックグラウンドのキュー処理に回すため、レスポンス\n返却時点ではまだ反映されていないことがある。`request_id`はデバイス側が生成する\n冪等キーで、同じ値で再送しても重複登録されず（既存のイベントがそのまま返る）。\n再送によってバックグラウンド処理も改めてスケジュールされるが、`process_event`\n自身の冪等ガードにより二重適用はされない。",
         "operationId": "create_event_api_v1_events_post",
         "requestBody": {
           "content": {
@@ -152,7 +152,7 @@
           "required": true
         },
         "responses": {
-          "201": {
+          "202": {
             "description": "Successful Response",
             "content": {
               "application/json": {
@@ -510,7 +510,7 @@
           "devices"
         ],
         "summary": "コマンドをキューに登録",
-        "description": "デバイスへのコマンド（再起動など）をキューに積む。デバイスは次回の\n/heartbeat 呼び出し時にこれを受け取る。サーバーからデバイスへの直接\nプッシュは行わない。",
+        "description": "デバイスへのコマンド（再起動・集計開始・集計停止）をキューに積む。デバイスは\n次回の /heartbeat 呼び出し時にこれを受け取る。サーバーからデバイスへの直接\nプッシュは行わない。",
         "operationId": "queue_command_api_v1_devices__device_id__commands_post",
         "security": [
           {
@@ -683,6 +683,62 @@
         ]
       }
     },
+    "/api/v1/parking-lots/activities": {
+      "get": {
+        "tags": [
+          "parking-lots"
+        ],
+        "summary": "全駐車場の活動ログ取得",
+        "description": "全駐車場の活動ログ（入出庫・手動調整・リセット）を、駐車場を問わず新しい順にまとめて\n返す。Adminコンソールの一覧表示用。この静的パスは /{lot_id} より前に定義する必要がある\n（FastAPIはパスパラメータの型に関わらず登録順でマッチするため、後ろだと\n/{lot_id} 側が \"activities\" を lot_id として解釈しようとして422になる）。",
+        "operationId": "list_all_parking_lot_activities_api_v1_parking_lots_activities_get",
+        "security": [
+          {
+            "AdminAccessToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000,
+              "description": "取得件数の上限（最大1000）",
+              "default": 200,
+              "title": "Limit"
+            },
+            "description": "取得件数の上限（最大1000）"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ParkingActivityOut"
+                  },
+                  "title": "Response List All Parking Lot Activities Api V1 Parking Lots Activities Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/parking-lots/{lot_id}": {
       "get": {
         "tags": [
@@ -730,7 +786,7 @@
           "parking-lots"
         ],
         "summary": "駐車場情報の更新",
-        "description": "駐車場名・収容台数を更新する。指定したフィールドのみ更新される。",
+        "description": "駐車場名・収容台数・マップ上のピン位置を更新する。指定したフィールドのみ更新される。",
         "operationId": "update_parking_lot_api_v1_parking_lots__lot_id__patch",
         "security": [
           {
@@ -827,7 +883,7 @@
           "parking-lots"
         ],
         "summary": "駐車台数のリセット",
-        "description": "現在の駐車台数を指定した値に直接設定する。実車確認とのズレを補正するための\nAdmin専用操作で、parking_activitiesに記録される（Adminコンソールからのみ実行可）。",
+        "description": "人力集計（current）またはシステム集計（system）を指定した値に直接設定する。実車確認\nや機器ズレを補正するためのAdmin専用操作で、parking_activitiesに記録される\n（Adminコンソールからのみ実行可）。",
         "operationId": "reset_parking_lot_api_v1_parking_lots__lot_id__reset_post",
         "security": [
           {
@@ -877,6 +933,57 @@
             }
           }
         }
+      }
+    },
+    "/api/v1/parking-lots/reset-all": {
+      "post": {
+        "tags": [
+          "parking-lots"
+        ],
+        "summary": "全駐車場の台数を一括リセット",
+        "description": "全ての駐車場の人力集計またはシステム集計を一括で0にリセットする（イベント開始時の\n初期化などを想定したAdmin専用操作）。parking_activitiesに記録される。",
+        "operationId": "reset_all_parking_lots_api_v1_parking_lots_reset_all_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ParkingLotResetAllIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ParkingLotOut"
+                  },
+                  "type": "array",
+                  "title": "Response Reset All Parking Lots Api V1 Parking Lots Reset All Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "AdminAccessToken": []
+          }
+        ]
       }
     },
     "/api/v1/parking-lots/{lot_id}/adjust": {
@@ -1104,10 +1211,164 @@
           }
         }
       }
+    },
+    "/api/v1/admin-users": {
+      "get": {
+        "tags": [
+          "admin-users"
+        ],
+        "summary": "許可ユーザー一覧取得",
+        "description": "管理コンソール（Admin）へのログインを許可されているGoogleアカウントの一覧を返す。",
+        "operationId": "list_admin_users_api_v1_admin_users_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AdminUserOut"
+                  },
+                  "type": "array",
+                  "title": "Response List Admin Users Api V1 Admin Users Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "AdminAccessToken": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "admin-users"
+        ],
+        "summary": "許可ユーザーの登録",
+        "description": "新しいGoogleアカウントを管理コンソールの許可リストに追加する。",
+        "operationId": "create_admin_user_api_v1_admin_users_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminUserCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminUserOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "AdminAccessToken": []
+          }
+        ]
+      }
+    },
+    "/api/v1/admin-users/{user_id}": {
+      "delete": {
+        "tags": [
+          "admin-users"
+        ],
+        "summary": "許可ユーザーの削除",
+        "description": "許可リストからGoogleアカウントを削除する。許可ユーザーが1人だけの場合は削除できない。",
+        "operationId": "delete_admin_user_api_v1_admin_users__user_id__delete",
+        "security": [
+          {
+            "AdminAccessToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "User Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "AdminUserCreate": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "title": "Email",
+            "description": "管理コンソールへのログインを許可するGoogleアカウントのメールアドレス"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email"
+        ],
+        "title": "AdminUserCreate"
+      },
+      "AdminUserOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "email",
+          "created_at"
+        ],
+        "title": "AdminUserOut"
+      },
       "CommandAck": {
         "properties": {
           "status": {
@@ -1142,9 +1403,13 @@
         "properties": {
           "command_type": {
             "type": "string",
-            "const": "restart",
+            "enum": [
+              "restart",
+              "start_counting",
+              "stop_counting"
+            ],
             "title": "Command Type",
-            "description": "コマンド種別（現在は再起動のみ対応）"
+            "description": "コマンド種別（restart=再起動 / start_counting=集計開始 / stop_counting=集計停止）"
           },
           "requested_by": {
             "anyOf": [
@@ -1210,15 +1475,13 @@
           },
           "created_at": {
             "type": "string",
-            "format": "date-time",
             "title": "Created At",
             "description": "コマンドがキューに登録された日時"
           },
           "delivered_at": {
             "anyOf": [
               {
-                "type": "string",
-                "format": "date-time"
+                "type": "string"
               },
               {
                 "type": "null"
@@ -1230,8 +1493,7 @@
           "completed_at": {
             "anyOf": [
               {
-                "type": "string",
-                "format": "date-time"
+                "type": "string"
               },
               {
                 "type": "null"
@@ -1259,6 +1521,7 @@
         "properties": {
           "device_code": {
             "type": "string",
+            "minLength": 1,
             "title": "Device Code",
             "description": "デバイスの一意な識別コード（例: trapa-dev1）"
           },
@@ -1368,8 +1631,7 @@
           "last_seen_at": {
             "anyOf": [
               {
-                "type": "string",
-                "format": "date-time"
+                "type": "string"
               },
               {
                 "type": "null"
@@ -1385,7 +1647,6 @@
           },
           "created_at": {
             "type": "string",
-            "format": "date-time",
             "title": "Created At"
           }
         },
@@ -1407,7 +1668,8 @@
           "device_code": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "minLength": 1
               },
               {
                 "type": "null"
@@ -1446,6 +1708,12 @@
       },
       "EventCreate": {
         "properties": {
+          "request_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Request Id",
+            "description": "クライアント（デバイス）が生成する冪等キー。同じ値で再送しても重複登録されず、既存のイベントがそのまま返る（レスポンスがタイムアウトした際の再送などを想定）"
+          },
           "event_type": {
             "type": "string",
             "enum": [
@@ -1476,6 +1744,7 @@
         },
         "type": "object",
         "required": [
+          "request_id",
           "event_type",
           "detected_at"
         ],
@@ -1485,7 +1754,14 @@
         "properties": {
           "id": {
             "type": "integer",
-            "title": "Id"
+            "title": "Id",
+            "description": "サーバー側の連番ID（引き続き自動採番。request_idとは別物）"
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Request Id",
+            "description": "リクエストの冪等キー（クライアント指定のUUID）"
           },
           "device_id": {
             "type": "integer",
@@ -1496,6 +1772,16 @@
             "type": "string",
             "title": "Event Type",
             "description": "イベント種別（entry=入庫 / exit=出庫）"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "processed",
+              "failed"
+            ],
+            "title": "Status",
+            "description": "キュー処理状況（pending=処理待ち / processed=反映済み / failed=処理失敗）"
           },
           "vehicle_track_id": {
             "anyOf": [
@@ -1510,13 +1796,11 @@
           },
           "detected_at": {
             "type": "string",
-            "format": "date-time",
             "title": "Detected At",
             "description": "エッジデバイスが検出した日時"
           },
           "received_at": {
             "type": "string",
-            "format": "date-time",
             "title": "Received At",
             "description": "サーバーがイベントを受信した日時"
           }
@@ -1524,8 +1808,10 @@
         "type": "object",
         "required": [
           "id",
+          "request_id",
           "device_id",
           "event_type",
+          "status",
           "vehicle_track_id",
           "detected_at",
           "received_at"
@@ -1573,7 +1859,6 @@
           },
           "timestamp": {
             "type": "string",
-            "format": "date-time",
             "title": "Timestamp",
             "description": "このヘルスチェックを実行した日時"
           }
@@ -1602,7 +1887,6 @@
         "properties": {
           "server_time": {
             "type": "string",
-            "format": "date-time",
             "title": "Server Time",
             "description": "サーバー側の受信日時"
           },
@@ -1635,17 +1919,17 @@
           "activity_type": {
             "type": "string",
             "title": "Activity Type",
-            "description": "entry / exit / manual_adjustment / reset"
+            "description": "entry / exit / manual_adjustment / reset / system_reset"
           },
           "delta": {
             "type": "integer",
             "title": "Delta",
-            "description": "この活動によるcurrent_countの増減"
+            "description": "この活動による増減（entry/exit/system_resetはsystem_count、それ以外はcurrent_count）"
           },
           "count_after": {
             "type": "integer",
             "title": "Count After",
-            "description": "この活動が反映された後のcurrent_count"
+            "description": "この活動が反映された後の値（対象カラムはactivity_typeにより異なる）"
           },
           "actor_label": {
             "type": "string",
@@ -1666,7 +1950,6 @@
           },
           "created_at": {
             "type": "string",
-            "format": "date-time",
             "title": "Created At"
           }
         },
@@ -1718,6 +2001,7 @@
           },
           "capacity": {
             "type": "integer",
+            "minimum": 0.0,
             "title": "Capacity",
             "description": "収容台数"
           }
@@ -1758,9 +2042,32 @@
             "title": "Has Device",
             "description": "このparking_lotに紐づくデバイスが1台以上あるか"
           },
+          "x_percent": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "X Percent",
+            "description": "マップ画像上のピン位置（横%）。未設定ならマップに表示しない"
+          },
+          "y_percent": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Y Percent",
+            "description": "マップ画像上のピン位置（縦%）。未設定ならマップに表示しない"
+          },
           "created_at": {
             "type": "string",
-            "format": "date-time",
             "title": "Created At"
           }
         },
@@ -1772,9 +2079,41 @@
           "current_count",
           "system_count",
           "has_device",
+          "x_percent",
+          "y_percent",
           "created_at"
         ],
         "title": "ParkingLotOut"
+      },
+      "ParkingLotResetAllIn": {
+        "properties": {
+          "target": {
+            "type": "string",
+            "enum": [
+              "current",
+              "system"
+            ],
+            "title": "Target",
+            "description": "リセット対象（current=人力集計 / system=システム集計）"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note",
+            "description": "リセット理由（任意）"
+          }
+        },
+        "type": "object",
+        "required": [
+          "target"
+        ],
+        "title": "ParkingLotResetAllIn"
       },
       "ParkingLotResetIn": {
         "properties": {
@@ -1783,6 +2122,16 @@
             "minimum": 0.0,
             "title": "Count",
             "description": "リセット後の駐車台数"
+          },
+          "target": {
+            "type": "string",
+            "enum": [
+              "current",
+              "system"
+            ],
+            "title": "Target",
+            "description": "リセット対象（current=人力集計 / system=システム集計）",
+            "default": "current"
           },
           "note": {
             "anyOf": [
@@ -1820,7 +2169,8 @@
           "capacity": {
             "anyOf": [
               {
-                "type": "integer"
+                "type": "integer",
+                "minimum": 0.0
               },
               {
                 "type": "null"
@@ -1828,6 +2178,34 @@
             ],
             "title": "Capacity",
             "description": "収容台数"
+          },
+          "x_percent": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 100.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "X Percent",
+            "description": "マップ画像上のピン位置（横%）"
+          },
+          "y_percent": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 100.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Y Percent",
+            "description": "マップ画像上のピン位置（縦%）"
           }
         },
         "type": "object",
@@ -1953,6 +2331,10 @@
     {
       "name": "auth",
       "description": "管理コンソール（Admin）のログイン・トークン管理"
+    },
+    {
+      "name": "admin-users",
+      "description": "管理コンソールへのログインを許可するアカウント（許可リスト）の管理"
     }
   ]
 }

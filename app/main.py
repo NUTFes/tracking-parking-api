@@ -1,4 +1,7 @@
+import asyncio
+import contextlib
 import logging
+from collections.abc import AsyncIterator
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,8 +11,38 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from app.config import settings
 from app.exceptions import ConflictError, NotFoundError, UnauthorizedError
 from app.routers import admin_users, auth, devices, events, health, heartbeat, parking_lots
+from app.usecases.event_usecase import sweep_stale_queued_events
 
 logger = logging.getLogger("app")
+
+
+async def _event_queue_sweep_loop() -> None:
+    """Periodically recovers parking_events stuck "pending"/"failed" — see
+    EventUsecase.sweep_stale_events for why this is needed (POST /events
+    queues the lot-count update as a BackgroundTask, which isn't a durable
+    queue, so a crash at the wrong moment would otherwise lose it silently).
+    Runs for the lifetime of the app (started/cancelled by `lifespan`
+    below); sweep_stale_queued_events does blocking DB I/O, so it's offloaded
+    to a thread rather than run directly on the event loop."""
+    while True:
+        await asyncio.sleep(settings.event_queue_sweep_interval_seconds)
+        try:
+            recovered = await asyncio.to_thread(sweep_stale_queued_events)
+            if recovered:
+                logger.info("event queue sweep recovered %d stale parking event(s)", recovered)
+        except Exception:
+            logger.exception("event queue sweep failed")
+
+
+@contextlib.asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    sweep_task = asyncio.create_task(_event_queue_sweep_loop())
+    try:
+        yield
+    finally:
+        sweep_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await sweep_task
 
 OPENAPI_TAGS = [
     {"name": "health", "description": "サーバーおよびDB接続の稼働確認"},
@@ -33,6 +66,7 @@ app = FastAPI(
     ),
     version="0.1.0",
     openapi_tags=OPENAPI_TAGS,
+    lifespan=lifespan,
 )
 
 

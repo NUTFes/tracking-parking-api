@@ -81,9 +81,10 @@ Google）で取得したIDトークンを `POST /api/v1/auth/google` に送り�
 
 1. **Googleとしての検証**: 署名・audience（`GOOGLE_CLIENT_ID`）・有効期限をGoogleに問い合わせて確認し、
    `email_verified` なメールアドレスを取り出す。
-2. **実行委員のメール形式検証**: `NN.x.姓.nutfes@gmail.com`（数字2桁.アルファベット1文字.
-   アルファベット文字列.nutfes@gmail.com、例: `25.m.kitano.nutfes@gmail.com`）に一致しない
-   メールアドレスは、Googleとしては正当でもここで拒否する。
+2. **実行委員のメール形式検証**: `NN.x.姓.nutfes@gmail.com`（数字2桁.アルファベット文字列.
+   アルファベット文字列.nutfes@gmail.com、例: `25.m.kitano.nutfes@gmail.com` や
+   `25.tm.sato.nutfes@gmail.com`）に一致しないメールアドレスは、Googleとしては正当でも
+   ここで拒否する。
 
 検証を通過したメールアドレスが `admin_users`（許可リスト、[管理者アカウントの許可リスト管理](#管理者アカウントの許可リスト管理)参照）に
 存在しなければ401。存在すれば、そこから先は従来どおりアクセストークン（AT）+ リフレッシュ
