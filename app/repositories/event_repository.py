@@ -17,6 +17,7 @@ class ParkingEventRepository:
         vehicle_track_id: str | None,
         detected_at: datetime,
         received_at: datetime,
+        request_id: str,
     ) -> ParkingEvent:
         event = ParkingEvent(
             device_id=device_id,
@@ -24,9 +25,16 @@ class ParkingEventRepository:
             vehicle_track_id=vehicle_track_id,
             detected_at=detected_at,
             received_at=received_at,
+            request_id=request_id,
         )
         self.db.add(event)
         return event
+
+    def get(self, event_id: int) -> ParkingEvent | None:
+        return self.db.get(ParkingEvent, event_id)
+
+    def get_by_request_id(self, request_id: str) -> ParkingEvent | None:
+        return self.db.query(ParkingEvent).filter(ParkingEvent.request_id == request_id).first()
 
     def list_for_lot(
         self,

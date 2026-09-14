@@ -1,3 +1,5 @@
+import uuid
+
 import pytest
 
 
@@ -175,7 +177,7 @@ def test_delete_device_cascades_events_and_commands(client, admin_headers):
 
     client.post(
         "/api/v1/events",
-        json={"event_type": "entry", "detected_at": "2026-08-14T10:00:00"},
+        json={"request_id": str(uuid.uuid4()), "event_type": "entry", "detected_at": "2026-08-14T10:00:00"},
         headers=device_headers,
     )
     client.post(

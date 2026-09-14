@@ -37,7 +37,9 @@ erDiagram
     PARKING_EVENTS {
         int id PK
         int device_id FK
+        string request_id UK "クライアント生成の冪等キー(UUID)"
         enum event_type "entry / exit"
+        enum status "pending / processed / failed"
         string vehicle_track_id "nullable"
         datetime detected_at
         datetime received_at
@@ -127,16 +129,25 @@ erDiagram
 
 | カラム | 型 | 制約 | 説明 |
 |---|---|---|---|
-| `id` | INT | PK, AUTO_INCREMENT | |
+| `id` | INT | PK, AUTO_INCREMENT | 連番。冪等キーとは別に、これまで通り自動採番のまま |
 | `device_id` | INT | FK → `devices.id` ON DELETE CASCADE, NOT NULL, INDEX | イベントを検出したデバイス |
+| `request_id` | CHAR(36) | UNIQUE, NOT NULL | クライアント（デバイス）が生成する冪等キー（UUID）。リクエストの重複排除・キュー処理のキーに使う |
 | `event_type` | ENUM('entry','exit') | NOT NULL | `entry`=入庫, `exit`=出庫 |
+| `status` | ENUM('pending','processed','failed') | NOT NULL, 既定値`pending` | 下記のキュー処理状態 |
 | `vehicle_track_id` | VARCHAR(64) | NULL可 | エッジ側トラッカーの追跡ID（同一車両の入出庫を紐づける参考情報） |
 | `detected_at` | DATETIME | NOT NULL | エッジデバイスが検出した日時 |
 | `received_at` | DATETIME | NOT NULL | サーバーが受信した日時 |
 
-`POST /api/v1/events` でイベントを作成する際、同一トランザクション内で対象駐車場の行を
-`SELECT ... FOR UPDATE` でロックし、`system_count`（`current_count`ではない）を更新する
-（`entry`で+1、`exit`で-1、0未満にはならない）。
+`POST /api/v1/events` は非同期処理: リクエストを受けるとまず `parking_events` 行を
+`status="pending"` で即座に永続化し（駐車場の行ロックは取らないため高速）、`202 Accepted`
+で応答する。駐車場の`system_count`（`current_count`ではない）への反映は、レスポンス送出後に
+バックグラウンドタスクとして実行される（対象駐車場の行を`SELECT ... FOR UPDATE`でロックし、
+`entry`で+1、`exit`で-1、0未満にはならない）。反映が終わると`status`は`processed`になる
+（反映中に例外が起きた場合は`failed`のまま残る）。
+
+`request_id`はデバイス側が生成するUUIDで、同じ値での再送（レスポンスがタイムアウトした
+際のリトライなど）は重複登録されず、既存の行がそのまま返る（バックグラウンド処理も
+再スケジュールされない）。
 
 ### `device_commands` — デバイスへのコマンドキュー
 

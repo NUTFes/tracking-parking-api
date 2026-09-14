@@ -4,7 +4,7 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app import google_auth
+from app import database, google_auth
 from app.database import Base, get_db
 from app.exceptions import UnauthorizedError
 from app.main import app
@@ -60,6 +60,13 @@ def _fake_verify_google_id_token(raw_token: str) -> str:
 @pytest.fixture(autouse=True)
 def _reset_db(monkeypatch):
     monkeypatch.setattr(google_auth, "verify_google_id_token", _fake_verify_google_id_token)
+    # POST /events processes the queued event in a FastAPI BackgroundTask,
+    # which opens its own session via app.database.SessionLocal (the
+    # request's session is already closed by the time background tasks run
+    # — see app.usecases.event_usecase.process_queued_event). Point that at
+    # the same in-memory test engine as _override_get_db, or it would try to
+    # open the real (MySQL) SessionLocal instead.
+    monkeypatch.setattr(database, "SessionLocal", TestingSessionLocal)
     Base.metadata.create_all(bind=engine)
     yield
     Base.metadata.drop_all(bind=engine)
