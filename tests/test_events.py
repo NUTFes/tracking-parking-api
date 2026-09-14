@@ -1,6 +1,11 @@
+import time
 import uuid
 from datetime import timedelta
 
+from fastapi.testclient import TestClient
+
+from app import main as app_main
+from app.main import app as fastapi_app
 from app.models.event import ParkingEvent
 from app.repositories.parking_lot_repository import ParkingLotRepository
 from app.usecases.event_usecase import EventUsecase, sweep_stale_queued_events
@@ -297,3 +302,66 @@ def test_process_event_marks_failed_on_exception_instead_of_raising(client, admi
         assert event.status == "failed"
     finally:
         db.close()
+
+
+def test_process_event_is_a_no_op_for_an_already_processed_event(client, admin_headers):
+    """Guards against being run twice for one event (e.g. the sweep picking
+    up an event mid-flight): once "processed", a second process_event call
+    doesn't touch system_count again."""
+    lot, device = _register_lot_and_device(client, admin_headers)
+    entry = client.post(
+        "/api/v1/events",
+        json={"request_id": _uuid(), "event_type": "entry", "detected_at": "2026-08-14T10:00:00"},
+        headers={"X-API-Key": device["api_key"]},
+    )
+    event_id = entry.json()["id"]
+
+    db = TestingSessionLocal()
+    try:
+        EventUsecase(db).process_event(event_id)  # already "processed" by now
+    finally:
+        db.close()
+
+    lot_after = client.get(f"/api/v1/parking-lots/{lot['id']}").json()
+    assert lot_after["system_count"] == 1
+
+
+def test_process_event_is_a_no_op_for_an_unknown_event_id(client, admin_headers):
+    """Also guards the "event not found" half of the same early-return."""
+    db = TestingSessionLocal()
+    try:
+        EventUsecase(db).process_event(999999999)
+    finally:
+        db.close()
+
+
+def test_lifespan_sweep_loop_recovers_a_stale_event(client, admin_headers, monkeypatch):
+    """Exercises app/main.py's actual startup wiring (not just
+    EventUsecase.sweep_stale_events in isolation): the lifespan-managed loop
+    really does call the sweep on its own, at the configured interval."""
+    monkeypatch.setattr(app_main.settings, "event_queue_sweep_interval_seconds", 0)
+    lot, device = _register_lot_and_device(client, admin_headers)
+    _insert_orphaned_event(device["id"], status="pending", seconds_ago=120)
+
+    with TestClient(fastapi_app) as fresh_client:
+        for _ in range(50):
+            if fresh_client.get(f"/api/v1/parking-lots/{lot['id']}").json()["system_count"] == 1:
+                break
+            time.sleep(0.05)
+        else:
+            raise AssertionError("lifespan sweep loop never recovered the stale event")
+
+
+def test_lifespan_sweep_loop_logs_and_survives_a_sweep_error(client, monkeypatch):
+    """A sweep tick that raises (e.g. a transient DB error) is caught and
+    logged, not left to crash the loop or the app."""
+    monkeypatch.setattr(app_main.settings, "event_queue_sweep_interval_seconds", 0)
+
+    def _boom():
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(app_main, "sweep_stale_queued_events", _boom)
+
+    with TestClient(fastapi_app) as fresh_client:
+        time.sleep(0.2)
+        assert fresh_client.get("/api/v1/health").status_code == 200
