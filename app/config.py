@@ -30,6 +30,15 @@ class Settings(BaseSettings):
     # event_queue_sweep_interval_seconds.
     event_queue_stale_seconds: int = 60
     event_queue_sweep_interval_seconds: int = 30
+    # Caps how many stale events a single sweep tick will load and process,
+    # so a large backlog (e.g. after an outage) can't make one tick run
+    # unbounded and overlap the next scheduled sweep.
+    event_queue_sweep_batch_size: int = 200
+    # Once an event has failed this many times, the sweep stops retrying it
+    # automatically (see EventUsecase.process_event / list_stale_queued) —
+    # it's left "failed" for manual investigation instead of being retried
+    # forever every event_queue_sweep_interval_seconds.
+    event_queue_max_attempts: int = 5
 
     # Google Sign-In (Identity Services). Both admin-web (with an allow-list,
     # see admin_users) and web (any correctly-formatted NUTFes account, see

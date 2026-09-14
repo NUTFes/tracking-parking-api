@@ -24,15 +24,15 @@ def create_event(
     即座に永続化される（レスポンスの`status`は"pending"）が、駐車場の現在台数
     （system_count）への反映はバックグラウンドのキュー処理に回すため、レスポンス
     返却時点ではまだ反映されていないことがある。`request_id`はデバイス側が生成する
-    冪等キーで、同じ値で再送しても重複登録されず（既存のイベントがそのまま返る）、
-    その場合はバックグラウンド処理も再度スケジュールされない。"""
-    event, is_new = usecase.enqueue_event(
+    冪等キーで、同じ値で再送しても重複登録されず（既存のイベントがそのまま返る）。
+    再送によってバックグラウンド処理も改めてスケジュールされるが、`process_event`
+    自身の冪等ガードにより二重適用はされない。"""
+    event = usecase.enqueue_event(
         device=device,
         event_type=payload.event_type,
         vehicle_track_id=payload.vehicle_track_id,
         detected_at=payload.detected_at,
         request_id=str(payload.request_id),
     )
-    if is_new:
-        background_tasks.add_task(process_queued_event, event.id)
+    background_tasks.add_task(process_queued_event, event.id)
     return event

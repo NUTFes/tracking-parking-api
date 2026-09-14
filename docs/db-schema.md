@@ -134,6 +134,7 @@ erDiagram
 | `request_id` | CHAR(36) | UNIQUE, NOT NULL | クライアント（デバイス）が生成する冪等キー（UUID）。リクエストの重複排除・キュー処理のキーに使う |
 | `event_type` | ENUM('entry','exit') | NOT NULL | `entry`=入庫, `exit`=出庫 |
 | `status` | ENUM('pending','processed','failed') | NOT NULL, 既定値`pending` | 下記のキュー処理状態 |
+| `attempts` | INT | NOT NULL, 既定値`0` | 反映処理が失敗した回数。`event_queue_max_attempts`に達すると、以後スイープは再試行しない |
 | `vehicle_track_id` | VARCHAR(64) | NULL可 | エッジ側トラッカーの追跡ID（同一車両の入出庫を紐づける参考情報） |
 | `detected_at` | DATETIME | NOT NULL | エッジデバイスが検出した日時 |
 | `received_at` | DATETIME | NOT NULL | サーバーが受信した日時 |
@@ -146,15 +147,19 @@ erDiagram
 （反映中に例外が起きた場合は`failed`のまま残る）。
 
 `request_id`はデバイス側が生成するUUIDで、同じ値での再送（レスポンスがタイムアウトした
-際のリトライなど）は重複登録されず、既存の行がそのまま返る（バックグラウンド処理も
-再スケジュールされない）。
+際のリトライなど）は重複登録されず、既存の行がそのまま返る。再送のたびにバックグラウンド
+処理も改めてスケジュールされるが、`process_event`自身の冪等ガード（`status`が
+`pending`/`failed`のときだけ反映する）により二重適用はされない。
 
 バックグラウンドタスクはメモリ上の処理でしかなく、永続化されたキューではない
 （`app/usecases/event_usecase.py`）。`status="pending"`のまま応答後にAPIプロセスが
 落ちるとタスクごと失われるため、`status`が`pending`または`failed`のまま
 `event_queue_stale_seconds`（既定60秒、`app/config.py`）以上経過した行は、
 `event_queue_sweep_interval_seconds`（既定30秒）ごとに起動するスイープ処理
-（`main.py`の`lifespan`）が拾い直して再度反映を試みる。
+（`main.py`の`lifespan`）が拾い直して再度反映を試みる（1回のスイープで処理するのは
+`event_queue_sweep_batch_size`件まで）。反映に失敗するたびに`attempts`が加算され、
+`event_queue_max_attempts`（既定5回）に達した行はそれ以上スイープの対象にならず、
+`status="failed"`のまま残る（手動での調査を想定）。
 
 ### `device_commands` — デバイスへのコマンドキュー
 

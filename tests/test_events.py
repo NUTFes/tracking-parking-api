@@ -6,7 +6,9 @@ from fastapi.testclient import TestClient
 
 from app import main as app_main
 from app.main import app as fastapi_app
+from app.models.device import Device
 from app.models.event import ParkingEvent
+from app.repositories.event_repository import ParkingEventRepository
 from app.repositories.parking_lot_repository import ParkingLotRepository
 from app.usecases.event_usecase import EventUsecase, sweep_stale_queued_events
 from app.utils import now_local
@@ -148,6 +150,71 @@ def test_create_event_is_idempotent_by_request_id(client, admin_headers):
     assert lot_after["system_count"] == 1
 
 
+def test_enqueue_event_recovers_from_a_concurrent_duplicate_request_id(client, admin_headers, monkeypatch):
+    """Two callers racing enqueue_event with the same request_id (the exact
+    scenario request_id exists to support: a device retrying before its
+    first attempt's response arrives) can both pass the get_by_request_id
+    check before either commits. The loser's commit() then raises
+    IntegrityError on the unique constraint — this should be caught and the
+    winner's already-committed row returned, not a raw 500."""
+    _lot, device_json = _register_lot_and_device(client, admin_headers)
+    headers = {"X-API-Key": device_json["api_key"]}
+    request_id = _uuid()
+
+    winner = client.post(
+        "/api/v1/events",
+        json={"request_id": request_id, "event_type": "entry", "detected_at": "2026-08-14T10:00:00"},
+        headers=headers,
+    ).json()
+
+    original_get_by_request_id = ParkingEventRepository.get_by_request_id
+    calls = {"n": 0}
+
+    def _racy_get_by_request_id(self, request_id):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return None  # simulate not having seen the winner's row yet
+        return original_get_by_request_id(self, request_id)
+
+    monkeypatch.setattr(ParkingEventRepository, "get_by_request_id", _racy_get_by_request_id)
+
+    db = TestingSessionLocal()
+    try:
+        device = db.get(Device, device_json["id"])
+        loser = EventUsecase(db).enqueue_event(
+            device=device,
+            event_type="entry",
+            vehicle_track_id=None,
+            detected_at=now_local(),
+            request_id=request_id,
+        )
+        assert loser.id == winner["id"]
+    finally:
+        db.close()
+
+
+def test_retrying_a_still_pending_event_reschedules_background_processing(client, admin_headers):
+    """A retry with the same request_id whose original event is still
+    "pending" (e.g. the API crashed after enqueue_event's commit but before
+    the original BackgroundTask ran) gets processing re-scheduled
+    immediately on the retry, instead of waiting for the next periodic
+    sweep pass (up to event_queue_sweep_interval_seconds later)."""
+    lot, device = _register_lot_and_device(client, admin_headers)
+    headers = {"X-API-Key": device["api_key"]}
+    request_id = _uuid()
+    _insert_orphaned_event(device["id"], status="pending", seconds_ago=0, request_id=request_id)
+
+    retry = client.post(
+        "/api/v1/events",
+        json={"request_id": request_id, "event_type": "entry", "detected_at": "2026-08-14T10:00:00"},
+        headers=headers,
+    )
+    assert retry.status_code == 202
+
+    lot_after = client.get(f"/api/v1/parking-lots/{lot['id']}").json()
+    assert lot_after["system_count"] == 1
+
+
 def test_list_parking_lot_events(client, admin_headers):
     """登録したイベントが、その駐車場のイベント一覧に反映されることを確認する"""
     lot, device = _register_lot_and_device(client, admin_headers)
@@ -217,7 +284,9 @@ def test_list_parking_lot_events_requires_admin(client, admin_headers):
     assert response.status_code == 401
 
 
-def _insert_orphaned_event(device_id: int, *, status: str, seconds_ago: int) -> int:
+def _insert_orphaned_event(
+    device_id: int, *, status: str, seconds_ago: int, request_id: str | None = None, attempts: int = 0
+) -> int:
     """Inserts a parking_events row directly, bypassing POST /events entirely
     — simulates an event whose BackgroundTask never ran (e.g. the API
     process was killed between enqueue_event's commit and the task actually
@@ -231,8 +300,9 @@ def _insert_orphaned_event(device_id: int, *, status: str, seconds_ago: int) -> 
         event = ParkingEvent(
             device_id=device_id,
             event_type="entry",
-            request_id=_uuid(),
+            request_id=request_id or _uuid(),
             status=status,
+            attempts=attempts,
             detected_at=stamp,
             received_at=stamp,
         )
@@ -280,6 +350,50 @@ def test_sweep_leaves_a_recent_pending_event_alone(client, admin_headers):
 
     lot_after = client.get(f"/api/v1/parking-lots/{lot['id']}").json()
     assert lot_after["system_count"] == 0
+
+
+def test_sweep_batch_size_limits_events_processed_per_tick(client, admin_headers, monkeypatch):
+    """A single sweep tick processes at most event_queue_sweep_batch_size
+    events, so a large backlog (e.g. after an outage) can't make one tick
+    run unbounded and overlap the next scheduled sweep."""
+    monkeypatch.setattr(app_main.settings, "event_queue_sweep_batch_size", 1)
+    lot, device = _register_lot_and_device(client, admin_headers)
+    _insert_orphaned_event(device["id"], status="pending", seconds_ago=120)
+    _insert_orphaned_event(device["id"], status="pending", seconds_ago=120)
+
+    assert sweep_stale_queued_events() == 1
+
+    lot_after = client.get(f"/api/v1/parking-lots/{lot['id']}").json()
+    assert lot_after["system_count"] == 1
+
+
+def test_sweep_stops_retrying_an_event_past_max_attempts(client, admin_headers, monkeypatch):
+    """A permanently-broken event isn't retried forever: once it has already
+    failed event_queue_max_attempts times, the sweep stops picking it up
+    instead of burning a DB transaction on it every interval indefinitely."""
+    monkeypatch.setattr(app_main.settings, "event_queue_max_attempts", 2)
+    lot, device = _register_lot_and_device(client, admin_headers)
+    _insert_orphaned_event(device["id"], status="failed", seconds_ago=120, attempts=2)
+
+    assert sweep_stale_queued_events() == 0
+
+    lot_after = client.get(f"/api/v1/parking-lots/{lot['id']}").json()
+    assert lot_after["system_count"] == 0
+
+
+def test_sweep_counts_only_successfully_recovered_events(client, admin_headers, monkeypatch):
+    """sweep_stale_events reports how many events it actually recovered, not
+    merely attempted — an event that fails again and gets re-marked "failed"
+    must not be counted, since main.py logs this number as "recovered"."""
+
+    def _boom(self, lot_id):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(ParkingLotRepository, "get_for_update", _boom)
+    _lot, device = _register_lot_and_device(client, admin_headers)
+    _insert_orphaned_event(device["id"], status="pending", seconds_ago=120)
+
+    assert sweep_stale_queued_events() == 0
 
 
 def test_process_event_marks_failed_on_exception_instead_of_raising(client, admin_headers, monkeypatch):

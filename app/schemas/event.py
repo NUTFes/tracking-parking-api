@@ -26,7 +26,9 @@ class EventOut(BaseModel):
     request_id: UUID = Field(description="リクエストの冪等キー（クライアント指定のUUID）")
     device_id: int = Field(description="このイベントを登録したデバイスのID")
     event_type: str = Field(description="イベント種別（entry=入庫 / exit=出庫）")
-    status: str = Field(description="キュー処理状況（pending=処理待ち / processed=反映済み / failed=処理失敗）")
+    status: Literal["pending", "processed", "failed"] = Field(
+        description="キュー処理状況（pending=処理待ち / processed=反映済み / failed=処理失敗）"
+    )
     vehicle_track_id: str | None
     detected_at: JSTDateTime = Field(description="エッジデバイスが検出した日時")
     received_at: JSTDateTime = Field(description="サーバーがイベントを受信した日時")

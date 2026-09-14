@@ -27,6 +27,11 @@ class ParkingEvent(Base):
     status: Mapped[str] = mapped_column(
         Enum(*EVENT_STATUSES, name="parking_event_status"), nullable=False, default="pending"
     )
+    # How many times process_event has caught an exception for this row
+    # (incremented only on failure). Once it reaches
+    # settings.event_queue_max_attempts, the sweep stops retrying it — see
+    # EventUsecase.process_event / ParkingEventRepository.list_stale_queued.
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     # Optional correlation id from the edge-side tracker (e.g. YOLO track id).
     vehicle_track_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     # Timestamp the edge device detected the event.
