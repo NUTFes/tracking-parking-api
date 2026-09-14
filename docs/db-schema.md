@@ -149,6 +149,13 @@ erDiagram
 際のリトライなど）は重複登録されず、既存の行がそのまま返る（バックグラウンド処理も
 再スケジュールされない）。
 
+バックグラウンドタスクはメモリ上の処理でしかなく、永続化されたキューではない
+（`app/usecases/event_usecase.py`）。`status="pending"`のまま応答後にAPIプロセスが
+落ちるとタスクごと失われるため、`status`が`pending`または`failed`のまま
+`event_queue_stale_seconds`（既定60秒、`app/config.py`）以上経過した行は、
+`event_queue_sweep_interval_seconds`（既定30秒）ごとに起動するスイープ処理
+（`main.py`の`lifespan`）が拾い直して再度反映を試みる。
+
 ### `device_commands` — デバイスへのコマンドキュー
 
 | カラム | 型 | 制約 | 説明 |

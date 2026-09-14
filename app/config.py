@@ -19,6 +19,18 @@ class Settings(BaseSettings):
     db_max_overflow: int = 20
     db_pool_timeout: int = 30
 
+    # POST /events queues the parking-lot count update as a FastAPI
+    # BackgroundTask rather than applying it inline (see EventUsecase).
+    # BackgroundTasks are in-memory only — not a durable queue — so a crash
+    # between the response and the task running would otherwise strand that
+    # event as "pending" forever. main.py's periodic sweep loop recovers
+    # any parking_events still "pending"/"failed" after this many seconds
+    # (long enough that it never races genuinely in-flight processing, which
+    # normally finishes in well under a second), retrying every
+    # event_queue_sweep_interval_seconds.
+    event_queue_stale_seconds: int = 60
+    event_queue_sweep_interval_seconds: int = 30
+
     # Google Sign-In (Identity Services). Both admin-web (with an allow-list,
     # see admin_users) and web (any correctly-formatted NUTFes account, see
     # app/google_auth.py) verify ID tokens against this OAuth client ID.

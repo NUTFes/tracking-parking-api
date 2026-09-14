@@ -36,6 +36,18 @@ class ParkingEventRepository:
     def get_by_request_id(self, request_id: str) -> ParkingEvent | None:
         return self.db.query(ParkingEvent).filter(ParkingEvent.request_id == request_id).first()
 
+    def list_stale_queued(self, *, before: datetime) -> list[ParkingEvent]:
+        """Events still "pending" (never processed — likely an orphaned
+        BackgroundTask, see EventUsecase.sweep_stale_events) or "failed"
+        (processing raised) whose received_at predates `before`. Ordered
+        oldest-first so a backlog drains in receipt order."""
+        return (
+            self.db.query(ParkingEvent)
+            .filter(ParkingEvent.status.in_(("pending", "failed")), ParkingEvent.received_at < before)
+            .order_by(ParkingEvent.received_at)
+            .all()
+        )
+
     def list_for_lot(
         self,
         lot_id: int,

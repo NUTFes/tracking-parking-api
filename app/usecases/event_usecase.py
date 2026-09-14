@@ -1,10 +1,11 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import Depends
 from sqlalchemy.orm import Session
 
 from app import database
+from app.config import settings
 from app.database import get_db
 from app.models.device import Device
 from app.models.event import ParkingEvent
@@ -66,29 +67,64 @@ class EventUsecase:
         for manual counts (manager adjust / admin reset); see
         ParkingLot.system_count. Also appends a parking_activities row
         (actor_label=device_code), same as the old synchronous record_event
-        used to do inline. No-ops if the event isn't pending (guards against
-        being scheduled twice for one event)."""
+        used to do inline.
+
+        Callable both for a single freshly-queued event (process_queued_event,
+        status="pending") and for a stale one being retried by
+        sweep_stale_events (status="pending" or "failed") — anything else
+        (already "processed", or not found) is a no-op, guarding against
+        being run twice for one event. Any exception during processing is
+        caught here (not left to the caller) so one bad event can't abort a
+        whole sweep batch: it's logged, the failed transaction is rolled
+        back, and the event is marked "failed" in a fresh mini-transaction —
+        left for a later sweep_stale_events pass to retry, rather than
+        silently dropping the lot-count update it represents."""
         event = self.events.get(event_id)
-        if event is None or event.status != "pending":
+        if event is None or event.status not in ("pending", "failed"):
             return
 
-        lot = self.parking_lots.get_for_update(event.device.parking_lot_id)
-        if lot is not None:
-            before = lot.system_count
-            if event.event_type == "entry":
-                lot.system_count += 1
-            else:
-                lot.system_count = max(0, lot.system_count - 1)
-            self.activities.create(
-                parking_lot_id=lot.id,
-                activity_type=event.event_type,
-                delta=lot.system_count - before,
-                count_after=lot.system_count,
-                actor_label=event.device.device_code,
-                note=None,
-            )
-        event.status = "processed"
-        self.db.commit()
+        try:
+            lot = self.parking_lots.get_for_update(event.device.parking_lot_id)
+            if lot is not None:
+                before = lot.system_count
+                if event.event_type == "entry":
+                    lot.system_count += 1
+                else:
+                    lot.system_count = max(0, lot.system_count - 1)
+                self.activities.create(
+                    parking_lot_id=lot.id,
+                    activity_type=event.event_type,
+                    delta=lot.system_count - before,
+                    count_after=lot.system_count,
+                    actor_label=event.device.device_code,
+                    note=None,
+                )
+            event.status = "processed"
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            logger.exception("failed to process queued parking event id=%s", event_id)
+            event = self.events.get(event_id)
+            if event is not None:
+                event.status = "failed"
+                self.db.commit()
+
+    def sweep_stale_events(self) -> int:
+        """Recovers parking_events stuck "pending"/"failed" for longer than
+        settings.event_queue_stale_seconds — either process_event's
+        try/except caught an error (and nothing retries a "failed" event on
+        its own), or the API process was killed/restarted between
+        enqueue_event's commit and its BackgroundTask actually running
+        (BackgroundTasks are in-memory only, not a durable queue, so that
+        window is a real gap). The staleness cutoff keeps this from racing
+        genuinely in-flight processing, which normally finishes in well
+        under a second. Called periodically by the sweep loop started in
+        main.py's lifespan. Returns how many were reprocessed, for logging."""
+        cutoff = now_local() - timedelta(seconds=settings.event_queue_stale_seconds)
+        stale = self.events.list_stale_queued(before=cutoff)
+        for event in stale:
+            self.process_event(event.id)
+        return len(stale)
 
 
 def get_event_usecase(db: Session = Depends(get_db)) -> EventUsecase:
@@ -106,12 +142,16 @@ def process_queued_event(event_id: int) -> None:
     db = database.SessionLocal()
     try:
         EventUsecase(db).process_event(event_id)
-    except Exception:
-        db.rollback()
-        logger.exception("failed to process queued parking event id=%s", event_id)
-        event = db.get(ParkingEvent, event_id)
-        if event is not None:
-            event.status = "failed"
-            db.commit()
+    finally:
+        db.close()
+
+
+def sweep_stale_queued_events() -> int:
+    """Sync entry point for the periodic sweep loop (see main.py's
+    lifespan) — opens its own session for the same reason
+    process_queued_event does."""
+    db = database.SessionLocal()
+    try:
+        return EventUsecase(db).sweep_stale_events()
     finally:
         db.close()

@@ -1,6 +1,11 @@
 import uuid
+from datetime import timedelta
 
+from app.models.event import ParkingEvent
 from app.repositories.parking_lot_repository import ParkingLotRepository
+from app.usecases.event_usecase import EventUsecase, sweep_stale_queued_events
+from app.utils import now_local
+from tests.conftest import TestingSessionLocal
 
 
 def _register_lot_and_device(client, admin_headers, device_code="dev-1"):
@@ -205,3 +210,90 @@ def test_list_parking_lot_events_requires_admin(client, admin_headers):
     lot, _device = _register_lot_and_device(client, admin_headers)
     response = client.get(f"/api/v1/parking-lots/{lot['id']}/events")
     assert response.status_code == 401
+
+
+def _insert_orphaned_event(device_id: int, *, status: str, seconds_ago: int) -> int:
+    """Inserts a parking_events row directly, bypassing POST /events entirely
+    — simulates an event whose BackgroundTask never ran (e.g. the API
+    process was killed between enqueue_event's commit and the task actually
+    executing) or previously failed. TestClient always finishes a real
+    request's BackgroundTask before returning (see
+    test_entry_and_exit_update_occupancy), so this is the only way to get a
+    genuinely stuck "pending"/"failed" row in a test."""
+    db = TestingSessionLocal()
+    try:
+        stamp = now_local() - timedelta(seconds=seconds_ago)
+        event = ParkingEvent(
+            device_id=device_id,
+            event_type="entry",
+            request_id=_uuid(),
+            status=status,
+            detected_at=stamp,
+            received_at=stamp,
+        )
+        db.add(event)
+        db.commit()
+        db.refresh(event)
+        return event.id
+    finally:
+        db.close()
+
+
+def test_sweep_reprocesses_a_stale_pending_event(client, admin_headers):
+    """A "pending" event whose BackgroundTask never ran (simulating a crash)
+    gets picked up and applied to the lot's system_count once it's older
+    than event_queue_stale_seconds — see EventUsecase.sweep_stale_events."""
+    lot, device = _register_lot_and_device(client, admin_headers)
+    _insert_orphaned_event(device["id"], status="pending", seconds_ago=120)
+
+    assert sweep_stale_queued_events() == 1
+
+    lot_after = client.get(f"/api/v1/parking-lots/{lot['id']}").json()
+    assert lot_after["system_count"] == 1
+
+
+def test_sweep_retries_a_stale_failed_event(client, admin_headers):
+    """A "failed" event (processing raised previously) is retried — and
+    successfully applied — by the sweep instead of being left stuck forever."""
+    lot, device = _register_lot_and_device(client, admin_headers)
+    _insert_orphaned_event(device["id"], status="failed", seconds_ago=120)
+
+    assert sweep_stale_queued_events() == 1
+
+    lot_after = client.get(f"/api/v1/parking-lots/{lot['id']}").json()
+    assert lot_after["system_count"] == 1
+
+
+def test_sweep_leaves_a_recent_pending_event_alone(client, admin_headers):
+    """An event still within event_queue_stale_seconds is left untouched —
+    otherwise the sweep could race a BackgroundTask that's genuinely still
+    in flight."""
+    lot, device = _register_lot_and_device(client, admin_headers)
+    _insert_orphaned_event(device["id"], status="pending", seconds_ago=1)
+
+    assert sweep_stale_queued_events() == 0
+
+    lot_after = client.get(f"/api/v1/parking-lots/{lot['id']}").json()
+    assert lot_after["system_count"] == 0
+
+
+def test_process_event_marks_failed_on_exception_instead_of_raising(client, admin_headers, monkeypatch):
+    """If applying the event raises, process_event rolls back, logs, and
+    marks the event "failed" rather than leaving it "pending" forever or
+    propagating the exception (which would otherwise abort a whole sweep
+    batch after the first failure)."""
+    _lot, device = _register_lot_and_device(client, admin_headers)
+    event_id = _insert_orphaned_event(device["id"], status="pending", seconds_ago=0)
+
+    def _boom(self, lot_id):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(ParkingLotRepository, "get_for_update", _boom)
+
+    db = TestingSessionLocal()
+    try:
+        EventUsecase(db).process_event(event_id)
+        event = db.get(ParkingEvent, event_id)
+        assert event.status == "failed"
+    finally:
+        db.close()
