@@ -1,6 +1,6 @@
-from datetime import datetime
+from datetime import date, datetime
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from app.deps import get_current_admin_user, get_current_general_user_label
 from app.google_auth import label_from_email
@@ -47,6 +47,32 @@ def list_all_parking_lot_activities(
     （FastAPIはパスパラメータの型に関わらず登録順でマッチするため、後ろだと
     /{lot_id} 側が "activities" を lot_id として解釈しようとして422になる）。"""
     return usecase.list_all_activities(limit=limit)
+
+
+@router.get(
+    "/activities/export",
+    summary="全駐車場の活動ログをCSVでダウンロード",
+    response_class=Response,
+    responses={200: {"content": {"text/csv": {}}, "description": "UTF-8（BOM付き）のCSV"}},
+)
+def export_all_parking_lot_activities(
+    start_date: date | None = Query(default=None, description="この日（JST）以降の活動に絞り込む（YYYY-MM-DD）"),
+    end_date: date | None = Query(default=None, description="この日（JST）以前の活動に絞り込む（YYYY-MM-DD、当日を含む）"),
+    usecase: ParkingLotUsecase = Depends(get_parking_lot_usecase),
+    _admin: AdminUser = Depends(get_current_admin_user),
+):
+    """全駐車場の活動ログを古い順にCSVで返す。件数上限はなく、日付を省略した側は無制限。
+    Excelで文字化けしないようBOM付きUTF-8で出力する。/activities と同じく /{lot_id} より前に
+    定義する必要がある。"""
+    if start_date and end_date and start_date > end_date:
+        raise HTTPException(status_code=422, detail="開始日は終了日以前の日付を指定してください")
+    body = usecase.export_activities_csv(start_date=start_date, end_date=end_date)
+    filename = f"activities_{start_date or 'all'}_{end_date or 'all'}.csv"
+    return Response(
+        content="\ufeff" + body,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/{lot_id}", response_model=ParkingLotOut, summary="駐車場詳細取得")

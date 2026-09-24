@@ -739,6 +739,79 @@
         }
       }
     },
+    "/api/v1/parking-lots/activities/export": {
+      "get": {
+        "tags": [
+          "parking-lots"
+        ],
+        "summary": "全駐車場の活動ログをCSVでダウンロード",
+        "description": "全駐車場の活動ログを古い順にCSVで返す。件数上限はなく、日付を省略した側は無制限。\nExcelで文字化けしないようBOM付きUTF-8で出力する。/activities と同じく /{lot_id} より前に\n定義する必要がある。",
+        "operationId": "export_all_parking_lot_activities_api_v1_parking_lots_activities_export_get",
+        "security": [
+          {
+            "AdminAccessToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "start_date",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "この日（JST）以降の活動に絞り込む（YYYY-MM-DD）",
+              "title": "Start Date"
+            },
+            "description": "この日（JST）以降の活動に絞り込む（YYYY-MM-DD）"
+          },
+          {
+            "name": "end_date",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "この日（JST）以前の活動に絞り込む（YYYY-MM-DD、当日を含む）",
+              "title": "End Date"
+            },
+            "description": "この日（JST）以前の活動に絞り込む（YYYY-MM-DD、当日を含む）"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "UTF-8（BOM付き）のCSV",
+            "content": {
+              "text/csv": {}
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/parking-lots/{lot_id}": {
       "get": {
         "tags": [

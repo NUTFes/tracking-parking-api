@@ -1,6 +1,10 @@
+import csv
+import io
 import uuid
+from datetime import datetime
 
-from tests.conftest import fake_google_id_token
+from app.models.parking_activity import ParkingActivity
+from tests.conftest import TestingSessionLocal, fake_google_id_token
 
 GENERAL_USER_EMAIL = "24.k.tanaka.nutfes@gmail.com"
 
@@ -279,3 +283,93 @@ def test_system_count_and_current_count_are_independent(client, admin_headers):
     after_adjust = client.get(f"/api/v1/parking-lots/{lot['id']}").json()
     assert after_adjust["current_count"] == 4
     assert after_adjust["system_count"] == 1
+
+
+def _insert_activity(lot_id: int, created_at: datetime, *, note: str | None = None) -> None:
+    db = TestingSessionLocal()
+    try:
+        db.add(
+            ParkingActivity(
+                parking_lot_id=lot_id,
+                activity_type="manual_adjustment",
+                delta=1,
+                count_after=1,
+                actor_label="24.k.tanaka",
+                note=note,
+                created_at=created_at,
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+
+def _parse_csv(response) -> list[list[str]]:
+    text = response.content.decode("utf-8")
+    assert text.startswith("\ufeff")
+    return list(csv.reader(io.StringIO(text.removeprefix("\ufeff"))))
+
+
+def test_export_activities_requires_admin(client, admin_headers):
+    """活動ログのCSVダウンロードには管理者認証が必要で、未認証だと401になることを確認する"""
+    response = client.get("/api/v1/parking-lots/activities/export")
+    assert response.status_code == 401
+
+
+def test_export_activities_returns_bom_csv_with_labels(client, admin_headers):
+    """活動ログをBOM付きUTF-8のCSVとしてダウンロードでき、駐車場名・種別が日本語ラベルで
+    出力されることを確認する"""
+    lot = _register_lot(client, admin_headers)
+    _insert_activity(lot["id"], datetime(2026, 9, 1, 10, 0, 0), note="メモ, カンマ入り")
+
+    response = client.get("/api/v1/parking-lots/activities/export", headers=admin_headers)
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/csv")
+    assert 'filename="activities_all_all.csv"' in response.headers["content-disposition"]
+
+    rows = _parse_csv(response)
+    assert rows[0] == ["日時", "駐車場ID", "駐車場", "種別", "対象", "増減", "変更後", "実行者", "メモ"]
+    assert rows[1] == [
+        "2026-09-01 10:00:00",
+        str(lot["id"]),
+        "Test Lot",
+        "手動調整",
+        "人力",
+        "1",
+        "1",
+        "24.k.tanaka",
+        "メモ, カンマ入り",
+    ]
+
+
+def test_export_activities_filters_by_inclusive_date_range(client, admin_headers):
+    """開始日・終了日で絞り込め、両端の日付を丸1日含み範囲外は含まれず、古い順に並ぶことを確認する"""
+    lot = _register_lot(client, admin_headers)
+    _insert_activity(lot["id"], datetime(2026, 9, 1, 23, 59, 59), note="before")
+    _insert_activity(lot["id"], datetime(2026, 9, 3, 23, 59, 59), note="end")
+    _insert_activity(lot["id"], datetime(2026, 9, 2, 0, 0, 0), note="start")
+    _insert_activity(lot["id"], datetime(2026, 9, 4, 0, 0, 0), note="after")
+
+    response = client.get(
+        "/api/v1/parking-lots/activities/export",
+        params={"start_date": "2026-09-02", "end_date": "2026-09-03"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    assert 'filename="activities_2026-09-02_2026-09-03.csv"' in response.headers["content-disposition"]
+    assert [row[8] for row in _parse_csv(response)[1:]] == ["start", "end"]
+
+    only_start = client.get(
+        "/api/v1/parking-lots/activities/export", params={"start_date": "2026-09-03"}, headers=admin_headers
+    )
+    assert [row[8] for row in _parse_csv(only_start)[1:]] == ["end", "after"]
+
+
+def test_export_activities_rejects_reversed_range(client, admin_headers):
+    """開始日が終了日より後の場合は422になることを確認する"""
+    response = client.get(
+        "/api/v1/parking-lots/activities/export",
+        params={"start_date": "2026-09-03", "end_date": "2026-09-02"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 422

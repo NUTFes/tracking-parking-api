@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from sqlalchemy.orm import Session
 
 from app.models.parking_activity import ParkingActivity
@@ -39,3 +41,13 @@ class ParkingActivityRepository:
 
     def list_recent(self, *, limit: int) -> list[ParkingActivity]:
         return self.db.query(ParkingActivity).order_by(ParkingActivity.created_at.desc()).limit(limit).all()
+
+    def list_between(self, *, since: datetime | None, until: datetime | None) -> list[ParkingActivity]:
+        """Oldest-first, unbounded — for export. `since` is inclusive and
+        `until` exclusive, so whole-day ranges don't overlap at midnight."""
+        query = self.db.query(ParkingActivity)
+        if since is not None:
+            query = query.filter(ParkingActivity.created_at >= since)
+        if until is not None:
+            query = query.filter(ParkingActivity.created_at < until)
+        return query.order_by(ParkingActivity.created_at.asc(), ParkingActivity.id.asc()).all()

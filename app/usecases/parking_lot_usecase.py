@@ -1,4 +1,6 @@
-from datetime import datetime
+import csv
+import io
+from datetime import date, datetime, time, timedelta
 from typing import Literal
 
 from fastapi import Depends
@@ -13,6 +15,25 @@ from app.repositories.device_repository import DeviceRepository
 from app.repositories.event_repository import ParkingEventRepository
 from app.repositories.parking_activity_repository import ParkingActivityRepository
 from app.repositories.parking_lot_repository import ParkingLotRepository
+
+
+# Mirrors the labels shown in the admin console's activity log table
+# (services/admin-web/src/components/ActivityLogTable.tsx) so the export
+# reads the same as the screen.
+ACTIVITY_TYPE_LABELS = {
+    "entry": "入庫",
+    "exit": "出庫",
+    "manual_adjustment": "手動調整",
+    "reset": "リセット",
+    "system_reset": "リセット",
+}
+ACTIVITY_TARGET_LABELS = {
+    "entry": "システム",
+    "exit": "システム",
+    "system_reset": "システム",
+    "manual_adjustment": "人力",
+    "reset": "人力",
+}
 
 
 class ParkingLotUsecase:
@@ -151,6 +172,34 @@ class ParkingLotUsecase:
 
     def list_all_activities(self, *, limit: int) -> list[ParkingActivity]:
         return self.activities.list_recent(limit=limit)
+
+    def export_activities_csv(self, *, start_date: date | None, end_date: date | None) -> str:
+        """Every activity whose created_at falls on [start_date, end_date]
+        (both inclusive, local-time calendar days) as a CSV string, oldest
+        first. Either bound may be omitted for an open-ended range."""
+        since = datetime.combine(start_date, time.min) if start_date else None
+        until = datetime.combine(end_date + timedelta(days=1), time.min) if end_date else None
+        activities = self.activities.list_between(since=since, until=until)
+        lot_names = {lot.id: lot.name for lot in self.parking_lots.list_all()}
+
+        buffer = io.StringIO()
+        writer = csv.writer(buffer, lineterminator="\r\n")
+        writer.writerow(["日時", "駐車場ID", "駐車場", "種別", "対象", "増減", "変更後", "実行者", "メモ"])
+        for activity in activities:
+            writer.writerow(
+                [
+                    activity.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+                    activity.parking_lot_id,
+                    lot_names.get(activity.parking_lot_id, ""),
+                    ACTIVITY_TYPE_LABELS.get(activity.activity_type, activity.activity_type),
+                    ACTIVITY_TARGET_LABELS.get(activity.activity_type, ""),
+                    activity.delta,
+                    activity.count_after,
+                    activity.actor_label,
+                    activity.note or "",
+                ]
+            )
+        return buffer.getvalue()
 
 
 def get_parking_lot_usecase(db: Session = Depends(get_db)) -> ParkingLotUsecase:
